@@ -9,6 +9,7 @@ public class LlamaChatEngine : ILlamaChatEngine {
     private readonly LLamaWeights _weights;
     private readonly LLamaContext _context;
     private readonly InteractiveExecutor _executor;
+    private readonly InferenceParams _params;
     private readonly ChatHistory _chat;
     private readonly ChatSession _session;
 
@@ -23,13 +24,18 @@ public class LlamaChatEngine : ILlamaChatEngine {
         _executor = new InteractiveExecutor(_context);
         _chat = new ChatHistory();
 
+        _params = new InferenceParams {
+            MaxTokens = 512,
+            AntiPrompts = ["User:", "<|im_end|>"]
+        };
+
         if (!string.IsNullOrEmpty(options.SystemPrompt))
             _chat.AddMessage(AuthorRole.System, options.SystemPrompt);
         _session = new ChatSession(_executor, _chat);
     }
 
-    public IAsyncEnumerable<string> RespondAsync(string userMessage, CancellationToken cancellationToken = default) => _session.ChatAsync(new ChatHistory.Message(AuthorRole.User, userMessage), inferenceParams: null, cancellationToken);
-
+    public IAsyncEnumerable<string> RespondAsync(string userMessage, CancellationToken cancellationToken = default) => _session.ChatAsync(new ChatHistory.Message(AuthorRole.User, userMessage), _params, cancellationToken);
+    
     public void Dispose() {
         _context?.Dispose();
         _weights?.Dispose();

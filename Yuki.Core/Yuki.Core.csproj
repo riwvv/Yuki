@@ -7,6 +7,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Prompts\*.txt" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="LLamaSharp" Version="0.27.0" />
     <PackageReference Include="LLamaSharp.Backend.Cuda12.Windows" Version="0.27.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.10" />
@@ -16,8 +20,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="HostAgent\Contracts\" />
-    <Folder Include="HostAgent\Services\" />
     <Folder Include="ServantAgent\Contracts\" />
     <Folder Include="ServantAgent\Services\" />
     <Folder Include="STT\Contracts\" />

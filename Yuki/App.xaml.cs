@@ -1,8 +1,11 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Serilog;
+using System.Text;
 using System.Windows;
 using Yuki.Core.Extensions;
+using Yuki.Core.HostAgent.Contracts;
 using Yuki.Extensions;
 using Yuki.ViewModels;
 using Yuki.Views;
@@ -35,11 +38,26 @@ public partial class App : Application {
             mainWindow.DataContext = mainWindowViewModel;
             mainWindow.Show();
 
+            Test();
+
             base.OnStartup(e);
         }
         catch (Exception) {
             throw;
         }
+    }
+
+    private async void Test() {
+        var logger = _host.Services.GetRequiredService<ILogger<App>>();
+        var agent = _host.Services.GetRequiredService<IHostAgentService>();
+
+        var text = new StringBuilder();
+
+        await foreach (var token in agent.RespondAsync("Привет! Кратко расскажи о себе")) {
+            text.Append(token);
+        }
+
+        logger.LogInformation(text.ToString().TrimEnd("\nUser:").ToString());
     }
 
     protected override async void OnExit(ExitEventArgs e) {
