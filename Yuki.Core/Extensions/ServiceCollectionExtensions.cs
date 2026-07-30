@@ -3,6 +3,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Yuki.Core.Configurations;
 using Yuki.Core.HostAgent.Contracts;
 using Yuki.Core.HostAgent.Services;
+using Yuki.Core.STT.Contracts;
+using Yuki.Core.STT.Services;
 using Yuki.Core.Wrappers.Contracts;
 using Yuki.Core.Wrappers.Services;
 
@@ -16,9 +18,11 @@ public static class ServiceCollectionExtensions {
         services.Configure<STTSettings>(configuration.GetSection("STT"));
         services.Configure<TTSSettings>(configuration.GetSection("TTS"));
         services.Configure<HostSettings>(configuration.GetSection("Host"));
+        services.Configure<WakeWordSettings>(configuration.GetSection("WakeWord"));
 
         services.AddSingleton<ILlamaChatEngineFactory, LlamaChatEngineFactory>();
         services.AddSingleton<IHostAgentService, HostAgentService>();
+        services.AddSingleton<IWakeWordDetector, WakeWordDetector>();
 
         return services;
     }
