@@ -7,20 +7,35 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Prompts\*.txt" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Remove="STT\Resources\wakeword.onnx" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="STT\Resources\wakeword.onnx">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="LLamaSharp" Version="0.27.0" />
+    <PackageReference Include="LLamaSharp.Backend.Cuda12.Windows" Version="0.27.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.10" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.20.1" />
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="STT\Contracts\" />
-    <Folder Include="STT\Services\" />
+    <Folder Include="ServantAgent\Contracts\" />
+    <Folder Include="ServantAgent\Services\" />
     <Folder Include="Models\" />
     <Folder Include="TTS\Contracts\" />
     <Folder Include="TTS\Services\" />
-    <Folder Include="Wrappers\" />
-    <Folder Include="STT\" />
   </ItemGroup>
 
 </Project>
