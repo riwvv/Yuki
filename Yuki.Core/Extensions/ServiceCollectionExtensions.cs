@@ -19,10 +19,13 @@ public static class ServiceCollectionExtensions {
         services.Configure<TTSSettings>(configuration.GetSection("TTS"));
         services.Configure<HostSettings>(configuration.GetSection("Host"));
         services.Configure<WakeWordSettings>(configuration.GetSection("WakeWord"));
+        services.Configure<AudioCaptureSettings>(configuration.GetSection("AudioCapture"));
 
         services.AddSingleton<ILlamaChatEngineFactory, LlamaChatEngineFactory>();
         services.AddSingleton<IHostAgentService, HostAgentService>();
         services.AddSingleton<IWakeWordDetector, WakeWordDetector>();
+        services.AddSingleton<IAudioCaptureService, MicrophoneCaptureService>();
+        services.AddSingleton<IWakeWordListener, WakeWordListener>();
 
         return services;
     }
