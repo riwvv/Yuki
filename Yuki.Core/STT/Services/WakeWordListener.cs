@@ -38,6 +38,7 @@ public class WakeWordListener : IWakeWordListener {
     // OnAudioAvailable, а _inferenceInProgress гарантирует, что в моменте
     // выполняется не больше одного такого коллбэка — гонки нет.
     private int _consecutiveDetections;
+    private bool _paused;
 
     public event Action<float>? WakeWordDetected;
 
@@ -57,8 +58,21 @@ public class WakeWordListener : IWakeWordListener {
 
     public void Stop() => _audioCapture.Stop();
 
+    public void Pause() => _paused = true;
+
+    public void Resume() {
+        Array.Clear(_ringBuffer);
+        _writePosition = 0;
+        _samplesSinceLastCheck = 0;
+        _consecutiveDetections = 0;
+
+        _paused = false;
+    }
+
     private void OnAudioAvailable(float[] samples) {
-        _logger.LogInformation($"Audio chunk: {samples.Length} samples, max amplitude: {samples.Max(Math.Abs)}");
+        if (_paused) return;
+
+        //_logger.LogInformation($"Audio chunk: {samples.Length} samples, max amplitude: {samples.Max(Math.Abs)}");
         // 1. Дописываем новый чанк в кольцевой буфер по кругу.
         foreach (var sample in samples) {
             _ringBuffer[_writePosition] = sample;

@@ -26,6 +26,15 @@ public static class ServiceCollectionExtensions {
         services.AddSingleton<IWakeWordDetector, WakeWordDetector>();
         services.AddSingleton<IAudioCaptureService, MicrophoneCaptureService>();
         services.AddSingleton<IWakeWordListener, WakeWordListener>();
+        services.AddSingleton<IVoiceActivityDetector, VoiceActivityDetector>();
+        services.AddSingleton<VoskModelPathProvider>();
+        services.AddSingleton<ISpeechRecognizer>(sp => {
+            var pathProvider = sp.GetRequiredService<VoskModelPathProvider>();
+            if (pathProvider.ModelPath is null)
+                throw new InvalidOperationException("Модель Vosk ещё не готова - провижининг должен завершиться раньше первого обращения к ISpeechRecognizer.");
+            return new SpeechRecognizer(pathProvider.ModelPath);
+        });
+        services.AddSingleton<IVoiceInteractionService, VoiceInteractionService>();
 
         return services;
     }

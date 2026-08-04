@@ -7,6 +7,7 @@ using System.Windows;
 using Yuki.Core.Extensions;
 using Yuki.Core.HostAgent.Contracts;
 using Yuki.Core.STT.Contracts;
+using Yuki.Core.STT.Services;
 using Yuki.Extensions;
 using Yuki.ViewModels;
 using Yuki.Views;
@@ -59,6 +60,9 @@ public partial class App : Application {
             mainWindow.DataContext = mainWindowViewModel;
             mainWindow.Show();
 
+            var modelPath = await VoskModelProvisioner.EnsureModelAsync();
+            _host.Services.GetRequiredService<VoskModelPathProvider>().ModelPath = modelPath;
+
             Test();
 
             base.OnStartup(e);
@@ -69,22 +73,15 @@ public partial class App : Application {
         }
     }
 
-    private async void Test() {
+    private void Test() {
         if (_host == null || _logger == null) return;
 
-        var agent = _host.Services.GetRequiredService<IHostAgentService>();
-        var text = new StringBuilder();
-
-        await foreach (var token in agent.RespondAsync("Привет! Кратко расскажи о себе")) {
-            text.Append(token);
-        }
-
-        _logger.LogInformation(text.ToString().TrimEnd("\nUser:").ToString());
-
+        var voiceInteraction = _host.Services.GetRequiredService<IVoiceInteractionService>();
+        voiceInteraction.StateChanged += state => _logger.LogInformation($"Voice state: {state}");
+        voiceInteraction.ResponseReady += response => _logger.LogInformation($"Yuki: {response}");
+        voiceInteraction.Start();
 
         var wakeWordListener = _host.Services.GetRequiredService<IWakeWordListener>();
-        wakeWordListener.WakeWordDetected += probability => _logger.LogInformation($"Wake word detected with probability: {probability}");
-
         wakeWordListener.Start();
     }
 

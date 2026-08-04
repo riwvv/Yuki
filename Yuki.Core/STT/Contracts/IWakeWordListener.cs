@@ -4,4 +4,6 @@ public interface IWakeWordListener : IDisposable {
     event Action<float> WakeWordDetected;
     void Start();
     void Stop();
+    void Pause();
+    void Resume();
 }
