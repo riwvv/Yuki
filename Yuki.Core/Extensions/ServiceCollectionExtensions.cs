@@ -21,12 +21,17 @@ public static class ServiceCollectionExtensions {
         services.Configure<WakeWordSettings>(configuration.GetSection("WakeWord"));
         services.Configure<AudioCaptureSettings>(configuration.GetSection("AudioCapture"));
 
+        services.AddHttpClient("Vosk", client => {
+            client.BaseAddress = new Uri(configuration.GetSection("STT:Vosk:BaseUrl").Get<string>() ?? "https://alphacephei.com/vosk/models/");
+        });
+
         services.AddSingleton<ILlamaChatEngineFactory, LlamaChatEngineFactory>();
         services.AddSingleton<IHostAgentService, HostAgentService>();
         services.AddSingleton<IWakeWordDetector, WakeWordDetector>();
         services.AddSingleton<IAudioCaptureService, MicrophoneCaptureService>();
         services.AddSingleton<IWakeWordListener, WakeWordListener>();
         services.AddSingleton<IVoiceActivityDetector, VoiceActivityDetector>();
+        services.AddSingleton<VoskModelProvisioner>();
         services.AddSingleton<VoskModelPathProvider>();
         services.AddSingleton<ISpeechRecognizer>(sp => {
             var pathProvider = sp.GetRequiredService<VoskModelPathProvider>();

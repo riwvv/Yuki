@@ -2,10 +2,8 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Serilog;
-using System.Text;
 using System.Windows;
 using Yuki.Core.Extensions;
-using Yuki.Core.HostAgent.Contracts;
 using Yuki.Core.STT.Contracts;
 using Yuki.Core.STT.Services;
 using Yuki.Extensions;
@@ -60,7 +58,7 @@ public partial class App : Application {
             mainWindow.DataContext = mainWindowViewModel;
             mainWindow.Show();
 
-            var modelPath = await VoskModelProvisioner.EnsureModelAsync();
+            var modelPath = await _host.Services.GetRequiredService<VoskModelProvisioner>().EnsureModelAsync();
             _host.Services.GetRequiredService<VoskModelPathProvider>().ModelPath = modelPath;
 
             Test();
