@@ -7,5 +7,5 @@ public partial class MainViewModel : ObservableObject {
     private bool isSpeaking;
 
     [ObservableProperty]
-    private string state = "Готова";
+    private string state = "Загрузка...";
 }

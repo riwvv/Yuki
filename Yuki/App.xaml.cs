@@ -58,10 +58,12 @@ public partial class App : Application {
             mainWindow.DataContext = mainWindowViewModel;
             mainWindow.Show();
 
+            mainWindowViewModel.State = "Инициализация...";
             var modelPath = await _host.Services.GetRequiredService<VoskModelProvisioner>().EnsureModelAsync();
             _host.Services.GetRequiredService<VoskModelPathProvider>().ModelPath = modelPath;
 
-            Test();
+            mainWindowViewModel.State = "Загрузка...";
+            await Test(mainWindowViewModel);
 
             base.OnStartup(e);
         }
@@ -71,16 +73,29 @@ public partial class App : Application {
         }
     }
 
-    private void Test() {
+    private async Task Test(MainViewModel viewModel) {
         if (_host == null || _logger == null) return;
 
-        var voiceInteraction = _host.Services.GetRequiredService<IVoiceInteractionService>();
-        voiceInteraction.StateChanged += state => _logger.LogInformation($"Voice state: {state}");
+        var voiceInteraction = await Task.Run(() => _host.Services.GetRequiredService<IVoiceInteractionService>());
+
+        voiceInteraction.StateChanged += state => {
+            _logger.LogInformation($"Voice state: {state}");
+            Current.Dispatcher.Invoke(() => {
+                viewModel.State = state switch {
+                    VoiceInteractionState.Idle => "Готова",
+                    VoiceInteractionState.Listening => "Слушаю...",
+                    VoiceInteractionState.Processing => "Обработка...",
+                    _ => "Неизвестно"
+                };
+            });
+        };
         voiceInteraction.ResponseReady += response => _logger.LogInformation($"Yuki: {response}");
         voiceInteraction.Start();
 
         var wakeWordListener = _host.Services.GetRequiredService<IWakeWordListener>();
         wakeWordListener.Start();
+
+        viewModel.State = "Готова";
     }
 
     protected override async void OnExit(ExitEventArgs e) {
