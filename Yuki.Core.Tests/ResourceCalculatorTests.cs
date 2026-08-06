@@ -1,4 +1,4 @@
-﻿using Yuki.Core.ResourceManagement;
+﻿using Yuki.Core.ResourceManagement.Services;
 
 namespace Yuki.Core.Tests;
 
@@ -22,5 +22,12 @@ public class ResourceCalculatorTests {
             perLayerMb: 0,
             totalLayers: 100
         ));
+    }
+
+    [Theory]
+    [InlineData(36, 2, 2048, 16, 4096, 2)]
+    public void ComputeKvCacheMb_CalculatesCorrectly(int layerCount, int kvHeadCount, int embeddingSize, int headCount, int contextLength, int bytesPerElement = 2) {
+        var result = ResourceCalculator.ComputeKvCacheMb(layerCount, kvHeadCount, embeddingSize, headCount, contextLength, bytesPerElement);
+        Assert.Equal(144, result);
     }
 }
