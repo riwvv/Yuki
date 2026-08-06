@@ -11,11 +11,26 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Remove="STT\Resources\wakeword.onnx" />
+    <None Remove="STT\Resources\melspectrogram.onnx" />
+    <None Remove="STT\Resources\embedding_model.onnx" />
+    <None Remove="STT\Resources\wakeword_classifier.onnx" />
+    <None Remove="STT\Resources\silero_vad.onnx" />
   </ItemGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="STT\Resources\wakeword.onnx">
+    <!-- Три onnx заморожённого пайплайна openWakeWord (mel -> embedding ->
+         наш классификатор), см. Yuki.Core/STT/Services/WakeWordDetector.cs -->
+    <EmbeddedResource Include="STT\Resources\melspectrogram.onnx">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </EmbeddedResource>
+    <EmbeddedResource Include="STT\Resources\embedding_model.onnx">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </EmbeddedResource>
+    <EmbeddedResource Include="STT\Resources\wakeword_classifier.onnx">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </EmbeddedResource>
+    <!-- Silero VAD — см. Yuki.Core/STT/Services/VoiceActivityDetector.cs -->
+    <EmbeddedResource Include="STT\Resources\silero_vad.onnx">
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </EmbeddedResource>
   </ItemGroup>
@@ -25,9 +40,12 @@
     <PackageReference Include="LLamaSharp.Backend.Cuda12.Windows" Version="0.27.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.10" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.10" />
     <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.20.1" />
+    <PackageReference Include="NAudio" Version="2.3.0" />
+    <PackageReference Include="Vosk" Version="0.3.38" />
   </ItemGroup>
 
   <ItemGroup>

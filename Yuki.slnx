@@ -1,4 +1,5 @@
 <Solution>
+  <Project Path="Yuki.Core.Tests/Yuki.Core.Tests.csproj" Id="c39590db-08bf-42ad-9f01-dd73bdd8c1b6" />
   <Project Path="Yuki.Core/Yuki.Core.csproj" Id="72d27ca9-71ef-4444-9042-5476e0290c16" />
   <Project Path="Yuki/Yuki.csproj" />
 </Solution>
