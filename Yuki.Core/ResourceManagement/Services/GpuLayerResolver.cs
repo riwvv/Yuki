@@ -24,7 +24,7 @@ public class GpuLayerResolver(IVramProvider _vramProvider, IOptions<ResourceMana
             contextLength: contextLength
         );
 
-        var perLayerMb = (long)(handle.SizeInBytes / (ulong)handle.LayerCount / (1024 * 1024));
+        var perLayerMb = (long)(handle.SizeInBytes / ((ulong)handle.LayerCount * 1024 * 1024));
         var freeVramMb = _vramProvider.GetFreeVramMb() - _settings.Value.ReservedVramMb;
 
         _kvCacheMb = kvCacheMb;

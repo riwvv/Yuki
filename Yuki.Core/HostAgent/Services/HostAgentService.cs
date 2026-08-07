@@ -17,6 +17,7 @@ public class HostAgentService : IHostAgentService, IDisposable {
         }
     }
 
+    private const int CONTEXT_SIZE = 4096;
     private readonly ChatHistory _chatHistory;
     private readonly ILlamaChatEngineFactory _factory;
     private readonly Lock _reloadLock = new();
@@ -29,8 +30,7 @@ public class HostAgentService : IHostAgentService, IDisposable {
         _modelPath = hostSettings.Value.ModelPath;
         _factory = factory;
 
-        const int contextSize = 4096;
-        var gpuLayers = gpuLayerResolver.ResolveGpuLayers(_modelPath, contextSize);
+        var gpuLayers = gpuLayerResolver.ResolveGpuLayers(_modelPath, CONTEXT_SIZE);
         logger.LogInformation($"Resource manager: выделяю {gpuLayers} слоёв на GPU для Host");
 
         var systemPrompt = Utils.ReadSystemPromptFromFile("HostAgentPrompt.txt");
@@ -40,6 +40,7 @@ public class HostAgentService : IHostAgentService, IDisposable {
         _engine = _factory.Create(new LlamaChatEngineOptions {
             ModelPath = _modelPath,
             ExistingHistory = _chatHistory,
+            ContextSize = (uint)CONTEXT_SIZE,
             GpuLayerCount = gpuLayers
         });
         _currentGpuLayerCount = gpuLayers;
@@ -55,6 +56,7 @@ public class HostAgentService : IHostAgentService, IDisposable {
         var newEngine = _factory.Create(new LlamaChatEngineOptions {
             ModelPath = _modelPath,
             ExistingHistory = _chatHistory,
+            ContextSize = (uint)CONTEXT_SIZE,
             GpuLayerCount = gpuLayerCount
         });
 
