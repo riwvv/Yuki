@@ -26,10 +26,10 @@ public class LlamaChatEngine : ILlamaChatEngine {
 
         _params = new InferenceParams {
             MaxTokens = 512,
-            AntiPrompts = ["User:", "<|im_end|>"]
+            AntiPrompts = ["<|im_end|>"]
         };
 
-        _session = new ChatSession(_executor, _chat);
+        _session = new ChatSession(_executor, _chat).WithHistoryTransform(new ModelChatTemplateTransform(_weights));
     }
 
     public IAsyncEnumerable<string> RespondAsync(string userMessage, CancellationToken cancellationToken = default) => _session.ChatAsync(new ChatHistory.Message(AuthorRole.User, userMessage), _params, cancellationToken);

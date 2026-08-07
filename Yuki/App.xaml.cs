@@ -51,8 +51,6 @@ public partial class App : Application {
             if (_host == null || _logger == null)
                 throw new InvalidOperationException("Хост или логгер приложения не инициализирован");
 
-            await _host.StartAsync();
-
             var mainWindow = _host.Services.GetRequiredService<MainWindow>();
             var mainWindowViewModel = _host.Services.GetRequiredService<MainViewModel>();
             mainWindow.DataContext = mainWindowViewModel;
@@ -63,6 +61,8 @@ public partial class App : Application {
             _host.Services.GetRequiredService<VoskModelPathProvider>().ModelPath = modelPath;
 
             mainWindowViewModel.State = "Загрузка...";
+            await _host.StartAsync();
+
             await Test(mainWindowViewModel);
 
             base.OnStartup(e);

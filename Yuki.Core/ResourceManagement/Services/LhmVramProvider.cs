@@ -4,7 +4,7 @@ using Yuki.Core.ResourceManagement.Contracts;
 
 namespace Yuki.Core.ResourceManagement.Services;
 
-public class LhmVramProvider : IVramProvider, IDisposable {
+public class LhmVramProvider : IVramProvider, IGpuLoadProvider, IDisposable {
     private readonly ILogger<LhmVramProvider> _logger;
     private readonly IHardware _hw;
     private Computer? _computer;
@@ -26,6 +26,15 @@ public class LhmVramProvider : IVramProvider, IDisposable {
         _logger.LogInformation($"Sensor: {sensor?.Name} - {sensor?.Value}");
 
         return sensor == null || !sensor.Value.HasValue ? throw new InvalidOperationException("Сенсор 'GPU Memory Free' не найден") : (long)sensor.Value;
+    }
+
+    public float GetGpuCoreLoadPercent() {
+        _hw.Update();
+
+        var sensor = _hw.Sensors.FirstOrDefault(x => x.SensorType == SensorType.Load && x.Name == "GPU Core");
+        _logger.LogInformation($"Sensor: {sensor?.Name} - {sensor?.Value}");
+
+        return sensor == null || !sensor.Value.HasValue ? throw new InvalidOperationException("Сенсор 'GPU Core' не найден") : (float)sensor.Value;
     }
 
     public void Dispose() {

@@ -40,8 +40,12 @@ public static class ServiceCollectionExtensions {
             return new SpeechRecognizer(pathProvider.ModelPath);
         });
         services.AddSingleton<IVoiceInteractionService, VoiceInteractionService>();
-        services.AddSingleton<IVramProvider, LhmVramProvider>();
         services.AddSingleton<IGpuLayerResolver, GpuLayerResolver>();
+        services.AddSingleton<LhmVramProvider>();
+        services.AddSingleton<IVramProvider>(sp => sp.GetRequiredService<LhmVramProvider>());
+        services.AddSingleton<IGpuLoadProvider>(sp => sp.GetRequiredService<LhmVramProvider>());
+        services.AddSingleton<ISafeToReloadGate, SafeToReloadGate>();
+        services.AddHostedService<ResourceMonitorBackgroundService>();
 
         return services;
     }

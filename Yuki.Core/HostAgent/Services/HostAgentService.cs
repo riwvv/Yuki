@@ -11,11 +11,18 @@ using Yuki.Core.Wrappers.Utils;
 namespace Yuki.Core.HostAgent.Services;
 
 public class HostAgentService : IHostAgentService, IDisposable {
+    public int CurrentGpuLayerCount {
+        get { 
+            lock (_reloadLock) return _currentGpuLayerCount; 
+        }
+    }
+
     private readonly ChatHistory _chatHistory;
     private readonly ILlamaChatEngineFactory _factory;
     private readonly Lock _reloadLock = new();
     private readonly string _modelPath;
     private ILlamaChatEngine _engine;
+    private int _currentGpuLayerCount;
 
     public HostAgentService(ILlamaChatEngineFactory factory, IOptions<HostSettings> hostSettings, IGpuLayerResolver gpuLayerResolver, ILogger<HostAgentService> logger) {
         _chatHistory = new ChatHistory();
@@ -35,6 +42,7 @@ public class HostAgentService : IHostAgentService, IDisposable {
             ExistingHistory = _chatHistory,
             GpuLayerCount = gpuLayers
         });
+        _currentGpuLayerCount = gpuLayers;
     }
 
     public IAsyncEnumerable<string> RespondAsync(string userMessage, CancellationToken cancellationToken = default) {
@@ -54,6 +62,7 @@ public class HostAgentService : IHostAgentService, IDisposable {
         lock (_reloadLock) {
             oldEngine = _engine;
             _engine = newEngine;
+            _currentGpuLayerCount = gpuLayerCount;
         }
 
         oldEngine.Dispose();
