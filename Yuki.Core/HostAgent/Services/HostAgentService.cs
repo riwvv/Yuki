@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using LLama.Common;
 using Yuki.Core.Configurations;
 using Yuki.Core.HostAgent.Contracts;
 using Yuki.Core.ResourceManagement.Contracts;
@@ -10,19 +11,53 @@ using Yuki.Core.Wrappers.Utils;
 namespace Yuki.Core.HostAgent.Services;
 
 public class HostAgentService : IHostAgentService, IDisposable {
-    private readonly ILlamaChatEngine _engine;
-    public HostAgentService(ILlamaChatEngineFactory factory, IOptions<HostSettings> settings, IGpuLayerResolver gpuLayerResolver, ILogger<HostAgentService> logger) {
+    private readonly ChatHistory _chatHistory;
+    private readonly ILlamaChatEngineFactory _factory;
+    private readonly Lock _reloadLock = new();
+    private readonly string _modelPath;
+    private ILlamaChatEngine _engine;
+
+    public HostAgentService(ILlamaChatEngineFactory factory, IOptions<HostSettings> hostSettings, IGpuLayerResolver gpuLayerResolver, ILogger<HostAgentService> logger) {
+        _chatHistory = new ChatHistory();
+        _modelPath = hostSettings.Value.ModelPath;
+        _factory = factory;
+
         const int contextSize = 4096;
-        var gpuLayers = gpuLayerResolver.ResolveGpuLayers(settings.Value.ModelPath, contextSize);
+        var gpuLayers = gpuLayerResolver.ResolveGpuLayers(_modelPath, contextSize);
         logger.LogInformation($"Resource manager: выделяю {gpuLayers} слоёв на GPU для Host");
-        _engine = factory.Create(new LlamaChatEngineOptions {
-            ModelPath = settings.Value.ModelPath,
-            SystemPrompt = Utils.ReadSystemPromptFromFile("HostAgentPrompt.txt"),
+
+        var systemPrompt = Utils.ReadSystemPromptFromFile("HostAgentPrompt.txt");
+        if (string.IsNullOrEmpty(systemPrompt)) throw new InvalidOperationException($"Не удалось прочитать промпт '{nameof(systemPrompt)}'");
+        _chatHistory.AddMessage(AuthorRole.System, systemPrompt);
+
+        _engine = _factory.Create(new LlamaChatEngineOptions {
+            ModelPath = _modelPath,
+            ExistingHistory = _chatHistory,
             GpuLayerCount = gpuLayers
         });
     }
 
-    public IAsyncEnumerable<string> RespondAsync(string userMessage, CancellationToken cancellationToken = default) => _engine.RespondAsync(userMessage, cancellationToken);
+    public IAsyncEnumerable<string> RespondAsync(string userMessage, CancellationToken cancellationToken = default) {
+        ILlamaChatEngine engine;
+        lock (_reloadLock) engine = _engine;
+        return engine.RespondAsync(userMessage, cancellationToken);
+    }
+
+    public void ReloadEngine(int gpuLayerCount) {
+        var newEngine = _factory.Create(new LlamaChatEngineOptions {
+            ModelPath = _modelPath,
+            ExistingHistory = _chatHistory,
+            GpuLayerCount = gpuLayerCount
+        });
+
+        ILlamaChatEngine oldEngine;
+        lock (_reloadLock) {
+            oldEngine = _engine;
+            _engine = newEngine;
+        }
+
+        oldEngine.Dispose();
+    }
 
     public void Dispose() => _engine.Dispose();
 }
