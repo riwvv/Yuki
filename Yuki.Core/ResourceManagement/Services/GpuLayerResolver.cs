@@ -1,10 +1,12 @@
 ﻿using LLama;
 using LLama.Common;
+using Microsoft.Extensions.Options;
+using Yuki.Core.Configurations;
 using Yuki.Core.ResourceManagement.Contracts;
 
 namespace Yuki.Core.ResourceManagement.Services;
 
-public class GpuLayerResolver(IVramProvider _vramProvider) : IGpuLayerResolver {
+public class GpuLayerResolver(IVramProvider _vramProvider, IOptions<ResourceManagerSettings> _settings) : IGpuLayerResolver {
     public int ResolveGpuLayers(string modelPath, int contextLength) {
         var probeParams = new ModelParams(modelPath) { GpuLayerCount = 0 };
         using var probeWeights = LLamaWeights.LoadFromFile(probeParams);
@@ -19,7 +21,7 @@ public class GpuLayerResolver(IVramProvider _vramProvider) : IGpuLayerResolver {
         );
 
         var perLayerMb = (long)(handle.SizeInBytes / (ulong)handle.LayerCount / (1024 * 1024));
-        var freeVramMb = _vramProvider.GetFreeVramMb();
+        var freeVramMb = _vramProvider.GetFreeVramMb() - _settings.Value.ReservedVramMb;
 
         return ResourceCalculator.ComputeGpuLayers(freeVramMb, kvCacheMb, perLayerMb, handle.LayerCount);
     }

@@ -19,6 +19,7 @@ public static class ServiceCollectionExtensions {
         services.Configure<HostSettings>(configuration.GetSection("Host"));
         services.Configure<WakeWordSettings>(configuration.GetSection("WakeWord"));
         services.Configure<AudioCaptureSettings>(configuration.GetSection("AudioCapture"));
+        services.Configure<ResourceManagerSettings>(configuration.GetSection("ResourceManager"));
 
         services.AddHttpClient("Vosk", client => {
             client.BaseAddress = new Uri(configuration.GetSection("STT:Vosk:BaseUrl").Get<string>() ?? "https://alphacephei.com/vosk/models/");
@@ -39,7 +40,7 @@ public static class ServiceCollectionExtensions {
             return new SpeechRecognizer(pathProvider.ModelPath);
         });
         services.AddSingleton<IVoiceInteractionService, VoiceInteractionService>();
-        services.AddSingleton<IVramProvider, DxgiVramProvider>();
+        services.AddSingleton<IVramProvider, LhmVramProvider>();
         services.AddSingleton<IGpuLayerResolver, GpuLayerResolver>();
 
         return services;
