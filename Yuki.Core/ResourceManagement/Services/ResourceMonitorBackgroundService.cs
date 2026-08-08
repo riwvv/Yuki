@@ -24,8 +24,9 @@ public class ResourceMonitorBackgroundService(IVramProvider _vramProvider, IGpuL
         var currentLayers = _hostAgent.CurrentGpuLayerCount;
         var newLayers = _gpuLayerResolver.RecomputeGpuLayers(freeVramMb, currentLayers);
 
-        var deficitSignal = newLayers < currentLayers;
-        var recoverySignal = newLayers > currentLayers;
+        var delta = Math.Abs(newLayers - currentLayers);
+        var deficitSignal = newLayers < currentLayers && delta >= _settings.Value.MinLayerDeltaForReload;
+        var recoverySignal = newLayers > currentLayers && delta >= _settings.Value.MinLayerDeltaForReload;
 
         _deficitStreak = deficitSignal ? _deficitStreak + 1 : 0;
         _recoveryStreak = recoverySignal ? _recoveryStreak + 1 : 0;
