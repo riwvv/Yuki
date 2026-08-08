@@ -13,25 +13,23 @@ public class LlamaChatEngine : ILlamaChatEngine {
     private readonly ChatHistory _chat;
     private readonly ChatSession _session;
 
-    public LlamaChatEngine(LlamaChatEngineOptions options) {
-        var modelParams = new ModelParams(options.ModelPath) {
-            ContextSize = options.ContextSize,
-            GpuLayerCount = options.GpuLayerCount,
+    public LlamaChatEngine(LlamaChatEngineOptions settings) {
+        var modelParams = new ModelParams(settings.ModelPath) {
+            ContextSize = settings.ContextSize,
+            GpuLayerCount = settings.GpuLayerCount,
         };
 
         _weights = LLamaWeights.LoadFromFile(modelParams);
         _context = _weights.CreateContext(modelParams);
         _executor = new InteractiveExecutor(_context);
-        _chat = new ChatHistory();
+        _chat = settings.ExistingHistory;
 
         _params = new InferenceParams {
             MaxTokens = 512,
-            AntiPrompts = ["User:", "<|im_end|>"]
+            AntiPrompts = ["<|im_end|>"]
         };
 
-        if (!string.IsNullOrEmpty(options.SystemPrompt))
-            _chat.AddMessage(AuthorRole.System, options.SystemPrompt);
-        _session = new ChatSession(_executor, _chat);
+        _session = new ChatSession(_executor, _chat).WithHistoryTransform(new ModelChatTemplateTransform(_weights));
     }
 
     public IAsyncEnumerable<string> RespondAsync(string userMessage, CancellationToken cancellationToken = default) => _session.ChatAsync(new ChatHistory.Message(AuthorRole.User, userMessage), _params, cancellationToken);

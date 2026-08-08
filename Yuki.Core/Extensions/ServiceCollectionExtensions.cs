@@ -3,6 +3,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Yuki.Core.Configurations;
 using Yuki.Core.HostAgent.Contracts;
 using Yuki.Core.HostAgent.Services;
+using Yuki.Core.ResourceManagement.Contracts;
+using Yuki.Core.ResourceManagement.Services;
 using Yuki.Core.STT.Contracts;
 using Yuki.Core.STT.Services;
 using Yuki.Core.Wrappers.Contracts;
@@ -12,14 +14,12 @@ namespace Yuki.Core.Extensions;
 
 public static class ServiceCollectionExtensions {
     public static IServiceCollection AddYukiCore(this IServiceCollection services, IConfiguration configuration) {
-        // Register core services here
-        // Example: services.AddSingleton<IMyService, MyService>();
-
         services.Configure<STTSettings>(configuration.GetSection("STT"));
         services.Configure<TTSSettings>(configuration.GetSection("TTS"));
         services.Configure<HostSettings>(configuration.GetSection("Host"));
         services.Configure<WakeWordSettings>(configuration.GetSection("WakeWord"));
         services.Configure<AudioCaptureSettings>(configuration.GetSection("AudioCapture"));
+        services.Configure<ResourceManagerSettings>(configuration.GetSection("ResourceManager"));
 
         services.AddHttpClient("Vosk", client => {
             client.BaseAddress = new Uri(configuration.GetSection("STT:Vosk:BaseUrl").Get<string>() ?? "https://alphacephei.com/vosk/models/");
@@ -40,6 +40,12 @@ public static class ServiceCollectionExtensions {
             return new SpeechRecognizer(pathProvider.ModelPath);
         });
         services.AddSingleton<IVoiceInteractionService, VoiceInteractionService>();
+        services.AddSingleton<IGpuLayerResolver, GpuLayerResolver>();
+        services.AddSingleton<LhmVramProvider>();
+        services.AddSingleton<IVramProvider>(sp => sp.GetRequiredService<LhmVramProvider>());
+        services.AddSingleton<IGpuLoadProvider>(sp => sp.GetRequiredService<LhmVramProvider>());
+        services.AddSingleton<ISafeToReloadGate, SafeToReloadGate>();
+        services.AddHostedService<ResourceMonitorBackgroundService>();
 
         return services;
     }

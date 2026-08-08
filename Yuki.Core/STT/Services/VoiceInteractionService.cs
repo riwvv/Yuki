@@ -25,6 +25,25 @@ public class VoiceInteractionService(IWakeWordListener _wakeWordListener, IAudio
         _listeningCts?.Cancel();
     }
 
+    public bool TryBeginBusy() {
+        if (_state != VoiceInteractionState.Idle) return false;
+        SetState(VoiceInteractionState.Processing); return true;
+    }
+
+    public async Task SayAsync(string prompt) {
+        if (!string.IsNullOrWhiteSpace(prompt)) {
+            var responseText = new StringBuilder();
+            await foreach (var token in _hostAgent.RespondAsync(prompt))
+                responseText.Append(token);
+            ResponseReady?.Invoke(responseText.ToString());
+        }
+    }
+
+    public void EndBusy() {
+        SetState(VoiceInteractionState.Idle);
+        _wakeWordListener.Resume();
+    }
+
     private void OnWakeWordDetected(float probability) {
         if (_state != VoiceInteractionState.Idle) return;
 

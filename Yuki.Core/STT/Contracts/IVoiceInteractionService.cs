@@ -8,4 +8,7 @@ public interface IVoiceInteractionService : IDisposable {
 
     void Start();
     void Stop();
+    bool TryBeginBusy();
+    Task SayAsync(string prompt);
+    void EndBusy();
 }
