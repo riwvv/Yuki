@@ -6,6 +6,7 @@ using System.Windows;
 using Yuki.Core.Extensions;
 using Yuki.Core.STT.Contracts;
 using Yuki.Core.STT.Services;
+using Yuki.Core.TTS.Contracts;
 using Yuki.Extensions;
 using Yuki.ViewModels;
 using Yuki.Views;
@@ -72,13 +73,30 @@ public partial class App : Application {
                     };
                 });
             };
-            voiceInteraction.ResponseReady += response => _logger.LogInformation($"Yuki: {response}");
 
-            mainWindowViewModel.State = "Загрузка...";
+            mainWindowViewModel.State = "Загрузка TTS-движка...";
+            try {
+                await Task.Run(() => _host.Services.GetRequiredService<ITextToSpeechPlayer>());
+                _logger.LogInformation("TTS-движок успешно инициализирован.");
+            }
+            catch (Exception ex) {
+                _logger.LogError(ex, "Не удалось инициализировать TTS-движок.");
+            }
+            var ttsPlayer = await Task.Run(() => _host.Services.GetRequiredService<ITextToSpeechPlayer>());
+            voiceInteraction.ResponseReady += response => {
+                _logger.LogInformation($"Yuki: {response}");
+                Task.Run(() => {
+                    try {
+                        ttsPlayer.Speak(response);
+                    }
+                    catch (Exception ex) {
+                        _logger.LogError(ex, "Ошибка при озвучке ответа TTS");
+                        throw;
+                    }
+                });
+            };
             await _host.StartAsync();
-
             mainWindowViewModel.State = "Готова";
-
             base.OnStartup(e);
         }
         catch (Exception ex) {

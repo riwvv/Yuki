@@ -7,12 +7,12 @@ namespace Yuki.Core.STT.Services;
 
 public class MicrophoneCaptureService : IAudioCaptureService {
     private readonly int _gain;
-    private readonly WaveInEvent _waveIn;
+    private readonly WaveIn _waveIn;
     public event Action<float[]>? AudioAvailable;
 
     public MicrophoneCaptureService(IOptions<AudioCaptureSettings> settings) {
         _gain = settings.Value.Gain;
-        _waveIn = new WaveInEvent {
+        _waveIn = new WaveIn {
             WaveFormat = new WaveFormat(16000, 16, 1)
         };
 

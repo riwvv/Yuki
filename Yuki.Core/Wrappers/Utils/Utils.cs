@@ -34,4 +34,19 @@ public static class Utils {
             return modelPath;
         throw new FileNotFoundException($"Модель '{fileName}' не найдена. Убедитесь, что она лежит в папке '{folderName}' в корне проекта или рядом с исполняемым файлом.");
     }
+
+    public static string GetTtsResourcePath(string relativePath) {
+        if (string.IsNullOrWhiteSpace(relativePath))
+            throw new ArgumentException("Относительный путь не может быть пустым", nameof(relativePath));
+        string basePath;
+#if DEBUG
+        basePath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, @"..\..\..\..\", "Yuki.Core", "TTS", "Resources", "assets"));
+#else
+        basePath = Path.Combine(AppContext.BaseDirectory, "assets");
+#endif
+        var fullPath = Path.Combine(basePath, relativePath);
+        if (File.Exists(fullPath) || Directory.Exists(fullPath))
+            return fullPath;
+        throw new FileNotFoundException($"Ресурс TTS '{relativePath}' не найден по пути: {fullPath}");
+    }
 }

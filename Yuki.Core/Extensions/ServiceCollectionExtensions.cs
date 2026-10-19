@@ -7,8 +7,12 @@ using Yuki.Core.ResourceManagement.Contracts;
 using Yuki.Core.ResourceManagement.Services;
 using Yuki.Core.STT.Contracts;
 using Yuki.Core.STT.Services;
+using Yuki.Core.TTS.Contracts;
+using Yuki.Core.TTS.Models;
+using Yuki.Core.TTS.Services;
 using Yuki.Core.Wrappers.Contracts;
 using Yuki.Core.Wrappers.Services;
+using Yuki.Core.Wrappers.Utils;
 
 namespace Yuki.Core.Extensions;
 
@@ -45,6 +49,26 @@ public static class ServiceCollectionExtensions {
         services.AddSingleton<IVramProvider>(sp => sp.GetRequiredService<LhmVramProvider>());
         services.AddSingleton<IGpuLoadProvider>(sp => sp.GetRequiredService<LhmVramProvider>());
         services.AddSingleton<ISafeToReloadGate, SafeToReloadGate>();
+        services.AddSingleton<Config>(sp => {
+            var onnxDir = Utils.GetTtsResourcePath("onnx");
+            return Helper.LoadCfgs(onnxDir);
+        });
+        services.AddSingleton<Style>(sp => {
+            var voiceStylePath = Utils.GetTtsResourcePath(Path.Combine("voice_styles", "F5.json"));
+            return Helper.LoadVoiceStyle(voiceStylePath);
+        });
+        services.AddSingleton<IUnicodeProcessor, UnicodeProcessor>();
+        services.AddSingleton<ITextToSpeechCore>(sp => {
+            var config = sp.GetRequiredService<Config>();
+            var onnxDir = Utils.GetTtsResourcePath("onnx");
+            return new TextToSpeechCore(config, onnxDir);
+        });
+        services.AddSingleton<ITextToSpeechPlayer>(sp => {
+            var tts = sp.GetRequiredService<ITextToSpeechCore>();
+            var style = sp.GetRequiredService<Style>();
+            return new TextToSpeechPlayer(tts, style);
+        });
+
         services.AddHostedService<ResourceMonitorBackgroundService>();
         services.AddHostedService<VoiceInteractionHostedService>();
 
