@@ -19,4 +19,19 @@ public static class Utils {
         stream.CopyTo(memoryStream);
         return memoryStream.ToArray();
     }
+
+    public static string GetLlmModelPath(string fileName) {
+        if (string.IsNullOrWhiteSpace(fileName))
+            throw new ArgumentException("Имя модели не может быть пустым", nameof(fileName));
+        var folderName = "LlmModels";
+        var modelPath = string.Empty;
+#if DEBUG
+        modelPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, @"..\..\..\..\", "Yuki.Core", folderName, fileName));
+#else
+        modelPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, folderName, fileName));
+#endif
+        if (File.Exists(modelPath))
+            return modelPath;
+        throw new FileNotFoundException($"Модель '{fileName}' не найдена. Убедитесь, что она лежит в папке '{folderName}' в корне проекта или рядом с исполняемым файлом.");
+    }
 }

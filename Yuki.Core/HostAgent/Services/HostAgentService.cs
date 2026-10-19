@@ -27,7 +27,7 @@ public class HostAgentService : IHostAgentService, IDisposable {
 
     public HostAgentService(ILlamaChatEngineFactory factory, IOptions<HostSettings> hostSettings, IGpuLayerResolver gpuLayerResolver, ILogger<HostAgentService> logger) {
         _chatHistory = new ChatHistory();
-        _modelPath = hostSettings.Value.ModelPath;
+        _modelPath = Utils.GetLlmModelPath(hostSettings.Value.ModelName);
         _factory = factory;
 
         var gpuLayers = gpuLayerResolver.ResolveGpuLayers(_modelPath, CONTEXT_SIZE);

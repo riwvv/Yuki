@@ -6,4 +6,4 @@
 
 
 ### ВАЖНО!
-Не забудьте адаптировать `appsettings.json`, раздел `Host`, пункт `ModelPath`.
+Не забудьте адаптировать `appsettings.json`, раздел `Host`, пункт `ModelName`.
