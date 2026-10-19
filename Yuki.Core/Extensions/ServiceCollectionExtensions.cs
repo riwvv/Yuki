@@ -46,6 +46,7 @@ public static class ServiceCollectionExtensions {
         services.AddSingleton<IGpuLoadProvider>(sp => sp.GetRequiredService<LhmVramProvider>());
         services.AddSingleton<ISafeToReloadGate, SafeToReloadGate>();
         services.AddHostedService<ResourceMonitorBackgroundService>();
+        services.AddHostedService<VoiceInteractionHostedService>();
 
         return services;
     }

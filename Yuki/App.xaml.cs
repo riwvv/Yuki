@@ -60,10 +60,24 @@ public partial class App : Application {
             var modelPath = await _host.Services.GetRequiredService<VoskModelProvisioner>().EnsureModelAsync();
             _host.Services.GetRequiredService<VoskModelPathProvider>().ModelPath = modelPath;
 
+            var voiceInteraction = await Task.Run(() => _host.Services.GetRequiredService<IVoiceInteractionService>());
+            voiceInteraction.StateChanged += state => {
+                _logger.LogInformation($"Voice state: {state}");
+                Current.Dispatcher.Invoke(() => {
+                    mainWindowViewModel.State = state switch {
+                        VoiceInteractionState.Idle => "Готова",
+                        VoiceInteractionState.Listening => "Слушаю...",
+                        VoiceInteractionState.Processing => "Обработка...",
+                        _ => "Неизвестно"
+                    };
+                });
+            };
+            voiceInteraction.ResponseReady += response => _logger.LogInformation($"Yuki: {response}");
+
             mainWindowViewModel.State = "Загрузка...";
             await _host.StartAsync();
 
-            await Test(mainWindowViewModel);
+            mainWindowViewModel.State = "Готова";
 
             base.OnStartup(e);
         }
@@ -71,31 +85,6 @@ public partial class App : Application {
             Log.Error(ex, "Ошибка при инициализации приложения");
             Shutdown();
         }
-    }
-
-    private async Task Test(MainViewModel viewModel) {
-        if (_host == null || _logger == null) return;
-
-        var voiceInteraction = await Task.Run(() => _host.Services.GetRequiredService<IVoiceInteractionService>());
-
-        voiceInteraction.StateChanged += state => {
-            _logger.LogInformation($"Voice state: {state}");
-            Current.Dispatcher.Invoke(() => {
-                viewModel.State = state switch {
-                    VoiceInteractionState.Idle => "Готова",
-                    VoiceInteractionState.Listening => "Слушаю...",
-                    VoiceInteractionState.Processing => "Обработка...",
-                    _ => "Неизвестно"
-                };
-            });
-        };
-        voiceInteraction.ResponseReady += response => _logger.LogInformation($"Yuki: {response}");
-        voiceInteraction.Start();
-
-        var wakeWordListener = _host.Services.GetRequiredService<IWakeWordListener>();
-        wakeWordListener.Start();
-
-        viewModel.State = "Готова";
     }
 
     protected override async void OnExit(ExitEventArgs e) {
