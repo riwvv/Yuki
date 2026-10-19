@@ -368,3 +368,4 @@ FodyWeavers.xsd
 LlmModels/*
 !LlmModels/.gitkeep
 /Yuki.Core/LlmModels/qwen2.5-3b-instruct-q4_k_m.gguf
+/Yuki.Core/TTS/Resources/assets/onnx/*.onnx
