@@ -59,7 +59,6 @@
     <Folder Include="Models\" />
     <Folder Include="ServantAgent\Contracts\" />
     <Folder Include="ServantAgent\Services\" />
-    <Folder Include="TTS\Resources\assets\" />
   </ItemGroup>
 
 </Project>
