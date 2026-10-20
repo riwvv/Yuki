@@ -365,5 +365,6 @@ MigrationBackup/
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
 
-LlmModels/*
-!LlmModels/.gitkeep
+/Yuki.Core/LlmModels/qwen2.5-3b-instruct-q4_k_m.gguf
+/Yuki.Core/TTS/Resources/assets/*
+!/Yuki.Core/TTS/Resources/assets/README.md
