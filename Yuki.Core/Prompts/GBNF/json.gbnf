@@ -1,0 +1,18 @@
+﻿# Корневое правило: всегда объект-конверт
+root ::= envelope
+
+# Конверт: обязательное поле message + опциональный tool_call
+envelope ::= "{" ws "\"message\":" ws string (ws "," ws "\"tool_call\":" ws tool-call)? ws "}"
+
+# Вызов инструмента: tool = delegate_to_servant, args = объект с произвольными строковыми полями
+tool-call ::= "{" ws "\"tool\":" ws "\"delegate_to_servant\"" ws "," ws "\"args\":" ws object ws "}"
+
+# Базовые правила JSON
+string ::= "\"" ( [^"\\\x7F\x00-\x1F] | "\\" (["\\/bfnrt] | "u" [0-9a-fA-F]{4}) )* "\"" ws
+object ::= "{" ws ( string ":" ws value ("," ws string ":" ws value)* )? "}" ws
+array ::= "[" ws ( value ("," ws value)* )? "]" ws
+value ::= object | array | string | number | ("true" | "false" | "null") ws
+number ::= ("-"? ([0-9] | [1-9] [0-9]{0,15})) ("." [0-9]+)? ([eE] [-+]? [0-9] [1-9]{0,15})? ws
+
+# Пробельные символы
+ws ::= | " " | "\n" [ \t]{0,20}
