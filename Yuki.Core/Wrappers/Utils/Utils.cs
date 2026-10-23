@@ -11,6 +11,14 @@ public static class Utils {
         return reader.ReadToEnd();
     }
 
+    public static string ReadGBNFFromFile(string fileName) {
+        var assembly = Assembly.GetExecutingAssembly();
+        var resourceName = $"Yuki.Core.Prompts.GBNF.{fileName}";
+        using var stream = assembly.GetManifestResourceStream(resourceName) ?? throw new FileNotFoundException($"Внедрённая GBNF грамматика не найдена: {resourceName}");
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
+    }
+
     public static byte[] LoadWakeWord(string fileName) {
         var assembly = Assembly.GetExecutingAssembly();
         var resourceName = $"Yuki.Core.STT.Resources.{fileName}";

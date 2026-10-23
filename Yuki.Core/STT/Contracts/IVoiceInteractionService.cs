@@ -4,11 +4,11 @@ public interface IVoiceInteractionService : IDisposable {
     VoiceInteractionState State { get; }
 
     event Action<VoiceInteractionState>? StateChanged;
-    event Action<string>? ResponseReady;
+    Func<string, Task>? RequestReady { get; set; }
 
     void Start();
     void Stop();
     bool TryBeginBusy();
-    Task SayAsync(string prompt);
+    void SayAsync(string prompt);
     void EndBusy();
 }

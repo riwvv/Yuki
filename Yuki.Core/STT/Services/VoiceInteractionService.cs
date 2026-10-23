@@ -1,19 +1,17 @@
 ﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using System.Text;
 using System.Threading.Channels;
 using Yuki.Core.Configurations;
-using Yuki.Core.HostAgent.Contracts;
 using Yuki.Core.STT.Contracts;
 
 namespace Yuki.Core.STT.Services;
 
-public class VoiceInteractionService(IWakeWordListener _wakeWordListener, IAudioCaptureService _audioCapture, IVoiceActivityDetector _vad, ISpeechRecognizer _recognizer, IHostAgentService _hostAgent, IOptions<STTSettings> _settings, ILogger<VoiceInteractionService> _logger) : IVoiceInteractionService {
+public class VoiceInteractionService(IWakeWordListener _wakeWordListener, IAudioCaptureService _audioCapture, IVoiceActivityDetector _vad, ISpeechRecognizer _recognizer, IOptions<STTSettings> _settings, ILogger<VoiceInteractionService> _logger) : IVoiceInteractionService {
     private VoiceInteractionState _state;
     public VoiceInteractionState State => _state;
 
     public event Action<VoiceInteractionState>? StateChanged;
-    public event Action<string>? ResponseReady;
+    public Func<string, Task>? RequestReady { get; set; }
 
     private Channel<float[]>? _audioChannel;
     private CancellationTokenSource? _listeningCts;
@@ -30,13 +28,9 @@ public class VoiceInteractionService(IWakeWordListener _wakeWordListener, IAudio
         SetState(VoiceInteractionState.Processing); return true;
     }
 
-    public async Task SayAsync(string prompt) {
-        if (!string.IsNullOrWhiteSpace(prompt)) {
-            var responseText = new StringBuilder();
-            await foreach (var token in _hostAgent.RespondAsync(prompt))
-                responseText.Append(token);
-            ResponseReady?.Invoke(responseText.ToString());
-        }
+    public void SayAsync(string prompt) {
+        if (!string.IsNullOrWhiteSpace(prompt))
+            RequestReady?.Invoke(prompt);
     }
 
     public void EndBusy() {
@@ -98,19 +92,11 @@ public class VoiceInteractionService(IWakeWordListener _wakeWordListener, IAudio
         _audioChannel = null;
 
         var transcript = _recognizer.GetFinalResult();
-        _logger.LogInformation($"Распознано: {transcript}");
 
         SetState(VoiceInteractionState.Processing);
 
-        if (!string.IsNullOrWhiteSpace(transcript)) {
-            var responseText = new StringBuilder();
-            await foreach (var token in _hostAgent.RespondAsync(transcript))
-                responseText.Append(token);
-            ResponseReady?.Invoke(responseText.ToString());
-        }
-
-        SetState(VoiceInteractionState.Idle);
-        _wakeWordListener.Resume();
+        if (!string.IsNullOrWhiteSpace(transcript) && RequestReady != null)
+            await RequestReady.Invoke(transcript);
     }
 
     private void SetState(VoiceInteractionState newState) {
