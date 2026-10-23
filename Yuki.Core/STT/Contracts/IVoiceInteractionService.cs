@@ -4,7 +4,7 @@ public interface IVoiceInteractionService : IDisposable {
     VoiceInteractionState State { get; }
 
     event Action<VoiceInteractionState>? StateChanged;
-    event Action<string>? RequestReady;
+    Func<string, Task>? RequestReady { get; set; }
 
     void Start();
     void Stop();

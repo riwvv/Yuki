@@ -11,7 +11,7 @@ public class VoiceInteractionService(IWakeWordListener _wakeWordListener, IAudio
     public VoiceInteractionState State => _state;
 
     public event Action<VoiceInteractionState>? StateChanged;
-    public event Action<string>? RequestReady;
+    public Func<string, Task>? RequestReady { get; set; }
 
     private Channel<float[]>? _audioChannel;
     private CancellationTokenSource? _listeningCts;
@@ -92,15 +92,11 @@ public class VoiceInteractionService(IWakeWordListener _wakeWordListener, IAudio
         _audioChannel = null;
 
         var transcript = _recognizer.GetFinalResult();
-        _logger.LogInformation($"Распознано: {transcript}");
 
         SetState(VoiceInteractionState.Processing);
 
-        if (!string.IsNullOrWhiteSpace(transcript))
-            RequestReady?.Invoke(transcript);
-
-        SetState(VoiceInteractionState.Idle);
-        _wakeWordListener.Resume();
+        if (!string.IsNullOrWhiteSpace(transcript) && RequestReady != null)
+            await RequestReady.Invoke(transcript);
     }
 
     private void SetState(VoiceInteractionState newState) {

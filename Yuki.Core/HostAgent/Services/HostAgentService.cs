@@ -1,22 +1,22 @@
-﻿using LLama.Common;
-using LLama.Sampling;
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Runtime.CompilerServices;
-using System.Text;
 using System.Text.Json;
-using Yuki.Core.Configurations;
-using Yuki.Core.HostAgent.Contracts;
+using System.Text;
+using LLama.Sampling;
+using LLama.Common;
 using Yuki.Core.ResourceManagement.Contracts;
 using Yuki.Core.ServantAgent.Contracts;
+using Yuki.Core.HostAgent.Contracts;
 using Yuki.Core.Wrappers.Contracts;
 using Yuki.Core.Wrappers.Models;
 using Yuki.Core.Wrappers.Utils;
+using Yuki.Core.Configurations;
 
 namespace Yuki.Core.HostAgent.Services;
 
 public class HostAgentService : IHostAgentService, IDisposable {
-    private const int CONTEXT_SIZE = 4096;
+    private const int CONTEXT_SIZE = 2048;
     private readonly ILlamaChatEngineFactory _factory;
     private readonly IServantAgentService _servantAgent;
     private readonly ChatHistory _chatHistory;
@@ -75,6 +75,8 @@ public class HostAgentService : IHostAgentService, IDisposable {
             await foreach (var token in ExtractAndStreamMessage(stream, fullJson, cancellationToken))
                 yield return token;
 
+            _logger.LogInformation($"Сырой JSON от Gemma: {fullJson}");
+
             ProcessToolCall(fullJson.ToString());
         }
         finally {
@@ -107,37 +109,41 @@ public class HostAgentService : IHostAgentService, IDisposable {
 
     }
 
-    private async IAsyncEnumerable<string> ExtractAndStreamMessage(IAsyncEnumerable<string> stream, StringBuilder fullJson, [EnumeratorCancellation] CancellationToken cancellationToken) {
-        var buffer = new StringBuilder();
+    private static async IAsyncEnumerable<string> ExtractAndStreamMessage(IAsyncEnumerable<string> stream, StringBuilder fullJson, [EnumeratorCancellation] CancellationToken cancellationToken) {
+        var messageBuffer = new StringBuilder();
         int state = 0;
         bool isEscaped = false;
+        bool messageExtracted = false;
 
         await foreach (var token in stream.WithCancellation(cancellationToken)) {
             fullJson.Append(token);
-            buffer.Append(token);
+            if (messageExtracted) continue;
 
-            while (buffer.Length > 0) {
-                char c = buffer[0];
-                buffer.Remove(0, 1);
-
+            foreach (char c in token) {
                 if (state == 0) {
-                    if (c == ':')
-                        state = 1;
+                    if (c == ':') state = 1;
                 }
                 else if (state == 1) {
+                    if (c == '"') state = 2;
+                }
+                else if (state == 2) {
                     if (c == '"' && !isEscaped) {
-                        state = 2;
+                        state = 3;
                         break;
                     }
 
-                    if (c == '\\' && !isEscaped)
-                        isEscaped = true;
-                    else
-                        isEscaped = false;
+                    if (c == '\\' && !isEscaped) isEscaped = true;
+                    else isEscaped = false;
 
                     if (!isEscaped || c != '\\')
-                        yield return c.ToString();
+                        messageBuffer.Append(c);
                 }
+            }
+
+            if (state == 3) {
+                messageExtracted = true;
+                if (messageBuffer.Length > 0)
+                    yield return messageBuffer.ToString();
             }
         }
     }
@@ -155,7 +161,7 @@ public class HostAgentService : IHostAgentService, IDisposable {
                     _logger.LogInformation($"System: Host делегирует задачу Servant'у: {task}");
 
                     // TODO реализовать выполнение команд у Servant'а
-                    // _ = _servantAgent.ExecuteTaskAsync(task);
+                     //_ = _servantAgent.ExecuteTaskAsync(task);
                 }
             }
         }

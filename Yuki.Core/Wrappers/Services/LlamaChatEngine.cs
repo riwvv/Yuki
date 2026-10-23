@@ -17,6 +17,7 @@ public class LlamaChatEngine : ILlamaChatEngine {
         var modelParams = new ModelParams(settings.ModelPath) {
             ContextSize = settings.ContextSize,
             GpuLayerCount = settings.GpuLayerCount,
+            
         };
 
         _weights = LLamaWeights.LoadFromFile(modelParams);
@@ -29,14 +30,15 @@ public class LlamaChatEngine : ILlamaChatEngine {
 
     public IAsyncEnumerable<string> RespondAsync(string userMessage, Grammar? grammar = null, CancellationToken cancellationToken = default) {
         var inferenceParams = new InferenceParams {
-            MaxTokens = 512,
-            AntiPrompts = ["<|im_end|>"]
+            MaxTokens = 256,
         };
 
-        // добавляем gbnf грамматику если удалось её получить
         if (grammar != null)
             inferenceParams.SamplingPipeline = new DefaultSamplingPipeline {
-                Grammar = grammar
+                Grammar = grammar,
+                Temperature = 0.7f,
+                TopK = 64,
+                TopP = 0.95f
             };
         
         return _session.ChatAsync(new ChatHistory.Message(AuthorRole.User, userMessage), inferenceParams, cancellationToken);
