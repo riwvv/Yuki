@@ -1,10 +1,13 @@
 ﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Yuki.Core.Configurations;
 using Yuki.Core.HostAgent.Contracts;
 using Yuki.Core.HostAgent.Services;
 using Yuki.Core.ResourceManagement.Contracts;
 using Yuki.Core.ResourceManagement.Services;
+using Yuki.Core.ServantAgent.Contracts;
+using Yuki.Core.ServantAgent.Services;
 using Yuki.Core.STT.Contracts;
 using Yuki.Core.STT.Services;
 using Yuki.Core.TTS.Contracts;
@@ -66,8 +69,10 @@ public static class ServiceCollectionExtensions {
         services.AddSingleton<ITextToSpeechPlayer>(sp => {
             var tts = sp.GetRequiredService<ITextToSpeechCore>();
             var style = sp.GetRequiredService<Style>();
-            return new TextToSpeechPlayer(tts, style);
+            var logger = sp.GetRequiredService<ILogger<TextToSpeechPlayer>>();
+            return new TextToSpeechPlayer(tts, style, logger);
         });
+        services.AddSingleton<IServantAgentService, ServantAgentService>();
 
         services.AddHostedService<ResourceMonitorBackgroundService>();
         services.AddHostedService<VoiceInteractionHostedService>();
