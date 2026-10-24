@@ -5,13 +5,13 @@ using System.Text.Json;
 using System.Text;
 using LLama.Sampling;
 using LLama.Common;
-using Yuki.Core.ResourceManagement.Contracts;
 using Yuki.Core.ServantAgent.Contracts;
 using Yuki.Core.HostAgent.Contracts;
 using Yuki.Core.Wrappers.Contracts;
 using Yuki.Core.Wrappers.Models;
 using Yuki.Core.Wrappers.Utils;
 using Yuki.Core.Configurations;
+using Yuki.Core.Wrappers.Services;
 
 namespace Yuki.Core.HostAgent.Services;
 
@@ -19,11 +19,11 @@ public class HostAgentService : IHostAgentService, IDisposable {
     private const int CONTEXT_SIZE = 2048;
     private readonly ILlamaChatEngineFactory _factory;
     private readonly IServantAgentService _servantAgent;
+    private readonly LlamaWeightsProvider _weightsProvider;
     private readonly ChatHistory _chatHistory;
     private readonly Grammar _envelopeGrammar;
     private readonly SemaphoreSlim _generationLock;
     private readonly Lock _reloadLock;
-    private readonly string _modelPath;
     private readonly ILogger<HostAgentService> _logger;
     private ILlamaChatEngine _engine;
     private int _currentGpuLayerCount;
@@ -34,32 +34,29 @@ public class HostAgentService : IHostAgentService, IDisposable {
         }
     }
 
-    public HostAgentService(ILlamaChatEngineFactory factory, IGpuLayerResolver gpuLayerResolver, IServantAgentService servantAgent, IOptions<HostSettings> hostSettings, ILogger<HostAgentService> logger) {
+    public HostAgentService(ILlamaChatEngineFactory factory, LlamaWeightsProvider weightsProvider, IServantAgentService servantAgent, IOptions<HostSettings> hostSettings, ILogger<HostAgentService> logger) {
         _logger = logger;
         _reloadLock = new();
         _generationLock = new(1, 1);
         _chatHistory = new();
-        _modelPath = Utils.GetLlmModelPath(hostSettings.Value.ModelName);
         _factory = factory;
+        _weightsProvider = weightsProvider;
         _servantAgent = servantAgent;
 
         var gbnf = Utils.ReadGBNFFromFile("json.gbnf");
         _envelopeGrammar = new Grammar(gbnf, "root");
-
-        var gpuLayers = gpuLayerResolver.ResolveGpuLayers(_modelPath, CONTEXT_SIZE);
-        _logger.LogInformation($"Resource manager: выделяю {gpuLayers} слоёв на GPU для Host");
 
         var systemPrompt = Utils.ReadSystemPromptFromFile("HostAgentPrompt.txt");
         if (string.IsNullOrEmpty(systemPrompt)) throw new InvalidOperationException($"Не удалось прочитать промпт '{nameof(systemPrompt)}'");
         _chatHistory.AddMessage(AuthorRole.System, systemPrompt);
 
         _engine = _factory.Create(new LlamaChatEngineOptions {
-            ModelPath = _modelPath,
+            Weights = _weightsProvider.Weights,
             ExistingHistory = _chatHistory,
-            ContextSize = (uint)CONTEXT_SIZE,
-            GpuLayerCount = gpuLayers
+            ContextSize = (uint)CONTEXT_SIZE
         });
-        _currentGpuLayerCount = gpuLayers;
+
+        _currentGpuLayerCount = _weightsProvider.GpuLayerCount;
     }
 
     public async IAsyncEnumerable<string> RespondAsync(string userMessage, [EnumeratorCancellation] CancellationToken cancellationToken = default) {
@@ -87,26 +84,28 @@ public class HostAgentService : IHostAgentService, IDisposable {
     public void ReloadEngine(int gpuLayerCount) {
         _generationLock.Wait();
         try {
-            var newEngine = _factory.Create(new LlamaChatEngineOptions {
-                ModelPath = _modelPath,
-                ExistingHistory = _chatHistory,
-                ContextSize = (uint)CONTEXT_SIZE,
-                GpuLayerCount = gpuLayerCount
-            });
-            
             ILlamaChatEngine oldEngine;
             lock (_reloadLock) {
                 oldEngine = _engine;
+            }
+            oldEngine.Dispose();
+
+            _weightsProvider.ReloadWeights(gpuLayerCount);
+
+            var newEngine = _factory.Create(new LlamaChatEngineOptions {
+                Weights = _weightsProvider.Weights,
+                ExistingHistory = _chatHistory,
+                ContextSize = (uint)CONTEXT_SIZE
+            });
+
+            lock (_reloadLock) {
                 _engine = newEngine;
                 _currentGpuLayerCount = gpuLayerCount;
             }
-
-            oldEngine.Dispose();
         }
         finally {
             _generationLock.Release();
         }
-
     }
 
     private static async IAsyncEnumerable<string> ExtractAndStreamMessage(IAsyncEnumerable<string> stream, StringBuilder fullJson, [EnumeratorCancellation] CancellationToken cancellationToken) {

@@ -14,14 +14,13 @@ public class LlamaChatEngine : ILlamaChatEngine {
     private readonly ChatSession _session;
 
     public LlamaChatEngine(LlamaChatEngineOptions settings) {
-        var modelParams = new ModelParams(settings.ModelPath) {
+        _weights = settings.Weights;
+
+        var contextParams = new ModelParams(string.Empty) {
             ContextSize = settings.ContextSize,
-            GpuLayerCount = settings.GpuLayerCount,
-            
         };
 
-        _weights = LLamaWeights.LoadFromFile(modelParams);
-        _context = _weights.CreateContext(modelParams);
+        _context = _weights.CreateContext(contextParams);
         _executor = new InteractiveExecutor(_context);
         _chat = settings.ExistingHistory;
 
@@ -43,6 +42,5 @@ public class LlamaChatEngine : ILlamaChatEngine {
     }
     public void Dispose() {
         _context?.Dispose();
-        _weights?.Dispose();
     }
 }
