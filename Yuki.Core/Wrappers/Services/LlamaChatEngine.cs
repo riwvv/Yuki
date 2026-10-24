@@ -31,15 +31,13 @@ public class LlamaChatEngine : ILlamaChatEngine {
     public IAsyncEnumerable<string> RespondAsync(string userMessage, Grammar? grammar = null, CancellationToken cancellationToken = default) {
         var inferenceParams = new InferenceParams {
             MaxTokens = 256,
-        };
-
-        if (grammar != null)
-            inferenceParams.SamplingPipeline = new DefaultSamplingPipeline {
-                Grammar = grammar,
+            SamplingPipeline = new DefaultSamplingPipeline {
+                Grammar = grammar ?? default,
                 Temperature = 0.7f,
                 TopK = 64,
                 TopP = 0.95f
-            };
+            }
+        };
         
         return _session.ChatAsync(new ChatHistory.Message(AuthorRole.User, userMessage), inferenceParams, cancellationToken);
     }
