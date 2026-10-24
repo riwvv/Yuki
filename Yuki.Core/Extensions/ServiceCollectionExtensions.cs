@@ -1,6 +1,8 @@
-﻿using Microsoft.Extensions.Configuration;
+﻿using BlackSharp.Core.Logging;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Yuki.Core.Configurations;
 using Yuki.Core.HostAgent.Contracts;
 using Yuki.Core.HostAgent.Services;
@@ -73,6 +75,15 @@ public static class ServiceCollectionExtensions {
             return new TextToSpeechPlayer(tts, style, logger);
         });
         services.AddSingleton<IServantAgentService, ServantAgentService>();
+        services.AddSingleton<LlamaWeightsProvider>(sp => {
+            var hostSettings = sp.GetRequiredService<IOptions<HostSettings>>().Value;
+            var modelPath = Utils.GetLlmModelPath(hostSettings.ModelName);
+            var gpuLayerResolver = sp.GetRequiredService<IGpuLayerResolver>();
+            var logger = sp.GetRequiredService<ILogger<LlamaWeightsProvider>>();
+            var gpuLayers = gpuLayerResolver.ResolveGpuLayers(modelPath, 4096);
+            logger.LogInformation($"Resource manager: выделяю {gpuLayers} слоёв на GPU для Host");
+            return new LlamaWeightsProvider(modelPath, gpuLayers);
+        });
 
         services.AddHostedService<ResourceMonitorBackgroundService>();
         services.AddHostedService<VoiceInteractionHostedService>();

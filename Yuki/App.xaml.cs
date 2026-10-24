@@ -2,16 +2,9 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System.Windows;
-using System.Text;
 using Serilog;
-using Yuki.Core.HostAgent.Contracts;
-using Yuki.Core.STT.Contracts;
-using Yuki.Core.TTS.Contracts;
-using Yuki.Core.STT.Services;
 using Yuki.Core.Extensions;
 using Yuki.Extensions;
-using Yuki.ViewModels;
-using Yuki.Views;
 
 namespace Yuki;
 
@@ -19,11 +12,11 @@ public partial class App : Application {
     private readonly IHost? _host;
     private readonly ILogger<App>? _logger;
     private static readonly Mutex _mutex = new(true, "YukiAppMutex");
+    private bool _mutexAcquired = false;
 
     public App() {
         try {
             var builder = Host.CreateApplicationBuilder();
-
             builder.Services.AddSerilog(config => config
                 .ReadFrom.Configuration(builder.Configuration)
                 .WriteTo.Debug()
@@ -33,7 +26,6 @@ public partial class App : Application {
             builder.Services.AddYukiCore(builder.Configuration);
 
             _host = builder.Build();
-
             _logger = _host.Services.GetRequiredService<ILogger<App>>();
         }
         catch (Exception ex) {
@@ -44,79 +36,24 @@ public partial class App : Application {
     }
 
     protected override async void OnStartup(StartupEventArgs e) {
-        if (!_mutex.WaitOne(TimeSpan.Zero, true)) {
-            MessageBox.Show("Приложение уже запущено.", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
-            Shutdown();
-            return;
-        }
-
         try {
-            if (_host == null || _logger == null)
-                throw new InvalidOperationException("Хост или логгер приложения не инициализирован");
+            ArgumentNullException.ThrowIfNull(_host);
+            ArgumentNullException.ThrowIfNull(_logger);
 
-            var mainWindow = _host.Services.GetRequiredService<MainWindow>();
-            var mainWindowViewModel = _host.Services.GetRequiredService<MainViewModel>();
-            mainWindow.DataContext = mainWindowViewModel;
-            mainWindow.Show();
+            AppBootstrap.HostValidation(_mutex);
+            _mutexAcquired = true;
 
-            // Первый слой - инициализация Vosk
-            mainWindowViewModel.State = "Инициализация...";
-            var modelPath = await _host.Services.GetRequiredService<VoskModelProvisioner>().EnsureModelAsync();
-            _host.Services.GetRequiredService<VoskModelPathProvider>().ModelPath = modelPath;
+            var mainWindowViewModel = AppBootstrap.InitializationAndStartupMainWindow(_host);
 
-            // Второй слой - инициализация TTS
-            mainWindowViewModel.State = "Загрузка TTS-движка...";
-            ITextToSpeechPlayer? ttsPlayer = null;
-            try {
-                await Task.Run(() => ttsPlayer = _host.Services.GetRequiredService<ITextToSpeechPlayer>());
-                _logger.LogInformation("System: TTS-движок успешно инициализирован");
-            }
-            catch (Exception ex) {
-                _logger.LogError(ex, "Не удалось инициализировать TTS-движок");
-            }
+            await AppBootstrap.VoskInitialization(mainWindowViewModel, _host);
 
-            // Третий слой - инициализация STT
-            mainWindowViewModel.State = "Загрузка STT-движка...";
-            var voiceInteraction = await Task.Run(() => _host.Services.GetRequiredService<IVoiceInteractionService>());
-            voiceInteraction.StateChanged += state => {
-                _logger.LogInformation($"Voice state: {state}");
-                Current.Dispatcher.Invoke(() => {
-                    mainWindowViewModel.State = state switch {
-                        VoiceInteractionState.Idle => "Готова",
-                        VoiceInteractionState.Listening => "Слушаю...",
-                        VoiceInteractionState.Processing => "Обработка...",
-                        _ => "Неизвестно"
-                    };
-                });
-            };
+            var ttsPlayer =  await AppBootstrap.TtsInitialization(mainWindowViewModel, _host, _logger);
+            var voiceInteraction = await AppBootstrap.SttInitialization(mainWindowViewModel, _host, _logger);
+            var hostAgent = AppBootstrap.HostAgentInitialization(_host);
 
-            // Четвёртый слой - инициализация HostAgent
-            var hostAgent = _host.Services.GetRequiredService<IHostAgentService>();
+            AppBootstrap.ImplementationVoiceCycle(voiceInteraction, ttsPlayer, hostAgent, _logger);
 
-            // Пятый слой - реализация голосового цикла
-            voiceInteraction.RequestReady = async requestText => {
-                _logger.LogInformation($"Распознано: {requestText}");
-                try {
-                    if (ttsPlayer == null)
-                        throw new Exception($"{nameof(ttsPlayer)} is null");
-                    var fullResponse = new StringBuilder();
-                    await foreach (var messageBlock in hostAgent.RespondAsync(requestText)) {
-                        fullResponse.Append(messageBlock);
-                        ttsPlayer.EnqueueText(messageBlock);
-                        _logger.LogInformation($"Yuki: {fullResponse}");
-                    }
-                }
-                catch (Exception ex) {
-                    _logger.LogError(ex, "Ошибка при генерации ответа Host'ом");
-                }
-                finally {
-                    voiceInteraction.EndBusy();
-                }
-            };
-
-            // Последний слой - старт хоста
-            await _host.StartAsync();
-            mainWindowViewModel.State = "Готова";
+            await AppBootstrap.HostStart(mainWindowViewModel, _host);
             base.OnStartup(e);
         }
         catch (Exception ex) {
@@ -131,8 +68,10 @@ public partial class App : Application {
             _host.Dispose();
         }
 
-        _mutex.ReleaseMutex();
-        _mutex.Dispose();
+        if (_mutexAcquired) {
+            _mutex.ReleaseMutex();
+            _mutex.Dispose();
+        }
 
         Log.CloseAndFlush();
         base.OnExit(e);
