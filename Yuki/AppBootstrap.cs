@@ -74,7 +74,7 @@ public static class AppBootstrap {
                 if (ttsPlayer == null)
                     throw new Exception($"{nameof(ttsPlayer)} is null");
                 var fullResponse = new StringBuilder();
-                await foreach (var messageBlock in hostAgent.RespondAsync(requestText)) {
+                await foreach (var messageBlock in hostAgent.RespondToUserAsync(requestText)) {
                     fullResponse.Append(messageBlock);
                     ttsPlayer.EnqueueText(messageBlock);
                     logger.LogInformation($"Yuki: {fullResponse}");
@@ -85,6 +85,16 @@ public static class AppBootstrap {
             }
             finally {
                 voiceInteraction.EndBusy();
+            }
+        };
+
+        hostAgent.ResponseGenerated += responseText => {
+            logger.LogInformation($"Фоновый ответ от Host: {responseText}");
+            try {
+                ttsPlayer?.EnqueueText(responseText);
+            }
+            catch (Exception ex) {
+                logger.LogError(ex, "Ошибка при отправке фонового ответа в TTS");
             }
         };
     }
