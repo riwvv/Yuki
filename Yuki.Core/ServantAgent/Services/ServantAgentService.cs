@@ -5,6 +5,7 @@ using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.SemanticKernel;
 using LLama;
 using LLama.Common;
+using LLama.Native;
 using LLamaSharp.SemanticKernel.ChatCompletion;
 using Yuki.Core.ServantAgent.Contracts;
 using Yuki.Core.Wrappers.Services;
@@ -17,6 +18,7 @@ namespace Yuki.Core.ServantAgent.Services;
 public class ServantAgentService : IServantAgentService {
     private readonly Kernel _kernel;
     private readonly LLamaContext _context;
+    private readonly LoraAdapter _loraAdapter;
     private readonly IChatCompletionService _chatService;
     private readonly OpenAIPromptExecutionSettings _settings;
     private readonly ILogger<ServantAgentService> _logger;
@@ -36,6 +38,11 @@ public class ServantAgentService : IServantAgentService {
             ContextSize = 4096
         };
         _context = weightsProvider.Weights.CreateContext(contextParams);
+
+        var loraPath = Utils.GetLlmModelPath("yuki_servant_lora.gguf");
+        _loraAdapter = weightsProvider.Weights.NativeHandle.LoadLoraFromFile(loraPath);
+        _context.NativeHandle.SetLoraAdapters([(Adapter: _loraAdapter, Scale: 1.0f)]);
+
         var executor = new InteractiveExecutor(_context);
 
         var chatService = new LLamaSharpChatCompletion(executor);
@@ -43,6 +50,12 @@ public class ServantAgentService : IServantAgentService {
         var builder = Kernel.CreateBuilder();
         builder.Services.AddSingleton<IChatCompletionService>(chatService);
 
+        builder.Plugins.AddFromType<BrowserPlugin>();
+        builder.Plugins.AddFromType<FileSystemPlugin>();
+        builder.Plugins.AddFromType<MediaPlayerPlugin>();
+        builder.Plugins.AddFromType<MiniGamePlugin>();
+        builder.Plugins.AddFromType<SystemAudioPlugin>();
+        builder.Plugins.AddFromType<SystemCommandPlugin>();
         builder.Plugins.AddFromType<SystemPlugins>();
 
         _kernel = builder.Build();
