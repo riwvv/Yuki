@@ -18,7 +18,7 @@ namespace Yuki.Core.ServantAgent.Services;
 public class ServantAgentService : IServantAgentService {
     private readonly Kernel _kernel;
     private readonly LLamaContext _context;
-    private readonly LoraAdapter _loraAdapter;
+    //private readonly LoraAdapter _loraAdapter;
     private readonly IChatCompletionService _chatService;
     private readonly OpenAIPromptExecutionSettings _settings;
     private readonly ILogger<ServantAgentService> _logger;
@@ -31,17 +31,18 @@ public class ServantAgentService : IServantAgentService {
         _taskLock = new(1, 1);
         _systemPrompt = Utils.ReadSystemPromptFromFile("ServantAgentPrompt.txt");
         _settings = new OpenAIPromptExecutionSettings {
-            ToolCallBehavior = ToolCallBehavior.AutoInvokeKernelFunctions
+            ToolCallBehavior = ToolCallBehavior.AutoInvokeKernelFunctions,
+            MaxTokens = 512
         };
 
         var contextParams = new ModelParams(string.Empty) {
-            ContextSize = 4096
+            ContextSize = 6144
         };
         _context = weightsProvider.Weights.CreateContext(contextParams);
 
-        var loraPath = Utils.GetLlmModelPath("yuki_servant_lora.gguf");
-        _loraAdapter = weightsProvider.Weights.NativeHandle.LoadLoraFromFile(loraPath);
-        _context.NativeHandle.SetLoraAdapters([(Adapter: _loraAdapter, Scale: 1.0f)]);
+        //var loraPath = Utils.GetLlmModelPath("yuki_servant_lora.gguf");
+        //_loraAdapter = weightsProvider.Weights.NativeHandle.LoadLoraFromFile(loraPath);
+        //_context.NativeHandle.SetLoraAdapters([(Adapter: _loraAdapter, Scale: 1.0f)]);
 
         var executor = new InteractiveExecutor(_context);
 
