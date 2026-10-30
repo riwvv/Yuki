@@ -31,7 +31,7 @@ public class ServantAgentService : IServantAgentService {
         _taskLock = new(1, 1);
         _systemPrompt = Utils.ReadSystemPromptFromFile("ServantAgentPrompt.txt");
         _settings = new OpenAIPromptExecutionSettings {
-            ToolCallBehavior = ToolCallBehavior.AutoInvokeKernelFunctions,
+            //ToolCallBehavior = ToolCallBehavior.AutoInvokeKernelFunctions,
             MaxTokens = 512
         };
 
@@ -46,7 +46,7 @@ public class ServantAgentService : IServantAgentService {
 
         var executor = new InteractiveExecutor(_context);
 
-        var chatService = new LLamaSharpChatCompletion(executor);
+        var chatService = new YukiChatCompletion(executor, new QwenChatMLTransform());
 
         var builder = Kernel.CreateBuilder();
         builder.Services.AddSingleton<IChatCompletionService>(chatService);
@@ -73,7 +73,7 @@ public class ServantAgentService : IServantAgentService {
             chatHistory.AddUserMessage(taskDescription);
 
             var result = await _chatService.GetChatMessageContentAsync(chatHistory, _settings, _kernel, cancellationToken: ct);
-            var resultText = result.Content ?? "Инструмент не вернул результат.";
+            var resultText = string.IsNullOrWhiteSpace(result.Content) ? "Инструмент не вернул результат." : result.Content;
 
             _logger.LogInformation($"Servant: завершил задачу. Результат: {resultText}");
             TaskCompleted?.Invoke(resultText);
