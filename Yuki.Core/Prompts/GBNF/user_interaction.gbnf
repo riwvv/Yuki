@@ -1,0 +1,7 @@
+﻿root ::= envelope
+envelope ::= "{" ws "\"message\":" ws string (ws "," ws "\"tool_call\":" ws tool-call)? ws "}"
+tool-call ::= "{" ws "\"tool\":" ws "\"delegate_to_servant\"" ws "," ws "\"args\":" ws args-object ws "}"
+args-object ::= "{" ws "\"task\":" ws string ws "}"
+
+string ::= "\"" ( [^"\\\x7F\x00-\x1F] | "\\" (["\\/bfnrt] | "u" [0-9a-fA-F]{4}) )* "\"" ws
+ws ::= | " " | "\n" [ \t]{0,20}

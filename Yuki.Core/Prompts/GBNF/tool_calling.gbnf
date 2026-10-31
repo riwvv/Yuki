@@ -1,0 +1,11 @@
+﻿root ::= envelope
+envelope ::= "{" ws "\"tool_call\":" ws tool-call ws "}" | "{" ws "\"message\":" ws string ws "}"
+tool-call ::= "{" ws "\"name\":" ws string ws "," ws "\"arguments\":" ws object ws "}"
+
+string ::= "\"" ( [^"\\\x7F\x00-\x1F] | "\\" (["\\/bfnrt] | "u" [0-9a-fA-F]{4}) )* "\"" ws
+object ::= "{" ws ( string ":" ws value ("," ws string ":" ws value)* )? "}" ws
+array ::= "[" ws ( value ("," ws value)* )? "]" ws
+value ::= object | array | string | number | ("true" | "false" | "null") ws
+number ::= ("-"? ([0-9] | [1-9] [0-9]{0,15})) ("." [0-9]+)? ([eE] [-+]? [0-9] [1-9]{0,15})? ws
+
+ws ::= | " " | "\n" [ \t]{0,20}

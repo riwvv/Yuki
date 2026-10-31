@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0-windows</TargetFramework>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
@@ -11,7 +11,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Remove="Prompts\GBNF\json.gbnf" />
+    <None Remove="Prompts\GBNF\dialog_only.gbnf" />
+    <None Remove="Prompts\GBNF\tool_calling.gbnf" />
+    <None Remove="Prompts\GBNF\user_interaction.gbnf" />
     <None Remove="STT\Resources\melspectrogram.onnx" />
     <None Remove="STT\Resources\embedding_model.onnx" />
     <None Remove="STT\Resources\wakeword_classifier.onnx" />
@@ -19,7 +21,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="Prompts\GBNF\json.gbnf" />
+    <EmbeddedResource Include="Prompts\GBNF\dialog_only.gbnf" />
+    <EmbeddedResource Include="Prompts\GBNF\tool_calling.gbnf" />
+    <EmbeddedResource Include="Prompts\GBNF\user_interaction.gbnf" />
     <EmbeddedResource Include="STT\Resources\melspectrogram.onnx">
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </EmbeddedResource>
@@ -43,22 +47,20 @@
 
   <ItemGroup>
     <PackageReference Include="LibreHardwareMonitorLib" Version="0.9.6" />
-    <PackageReference Include="LLamaSharp" Version="0.27.0" />
-    <PackageReference Include="LLamaSharp.Backend.Cuda12.Windows" Version="0.27.0" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.10" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.10" />
-    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.10" />
-    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.10" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.10" />
-    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.10" />
+    <PackageReference Include="LLamaSharp" Version="0.30.0" />
+    <PackageReference Include="LLamaSharp.Backend.Cuda12.Windows" Version="0.30.0" />
+    <PackageReference Include="LLamaSharp.semantic-kernel" Version="0.27.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.14" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.14" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.14" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.14" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.14" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.14" />
     <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.31.0" />
+    <PackageReference Include="Microsoft.SemanticKernel" Version="1.81.0" />
     <PackageReference Include="NAudio" Version="3.3.0" />
     <PackageReference Include="Vortice.DXGI" Version="3.8.3" />
     <PackageReference Include="Vosk" Version="0.3.38" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="Models\" />
   </ItemGroup>
 
 </Project>

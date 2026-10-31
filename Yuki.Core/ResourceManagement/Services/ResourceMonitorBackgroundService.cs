@@ -1,10 +1,9 @@
 ﻿using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using System.Text;
+using Yuki.Core.ResourceManagement.Contracts;
 using Yuki.Core.Configurations;
 using Yuki.Core.HostAgent.Contracts;
-using Yuki.Core.ResourceManagement.Contracts;
 using Yuki.Core.STT.Contracts;
 
 namespace Yuki.Core.ResourceManagement.Services;
@@ -42,17 +41,8 @@ public class ResourceMonitorBackgroundService(IVramProvider _vramProvider, IGpuL
 
                     _logger.LogInformation($"Resource manager: подтверждена смена нагрузки, {currentLayers} => {newLayers} слоёв");
 
-                    //var prompt = $"[Системное событие] Ты заметила, что {direction}. Скажи об этом пользователю в своём стиле.";
-                    //if (!string.IsNullOrWhiteSpace(prompt))
-                    //{
-                    //    var responseText = new StringBuilder();
-                    //    await foreach (var token in _hostAgent.RespondAsync(prompt))
-                    //        responseText.Append(token);
-                    //    RequestReady?.Invoke(responseText.ToString());
-                    //}
-
-                    _voice.SayAsync($"[Системное событие] Ты заметила, что {direction}. Скажи об этом пользователю в своём стиле.");
-                    _hostAgent.ReloadEngine(newLayers);
+                    await _hostAgent.SaySystemEventAsync($"[Системное событие] Ты заметила, что {direction}. Скажи об этом пользователю в своём стиле.");
+                    await _hostAgent.ReloadEngineAsync(newLayers);
                     _deficitStreak = _recoveryStreak = 0;
                 }
                 finally { _voice.EndBusy(); }
