@@ -14,6 +14,8 @@ namespace Yuki.Core.Wrappers.Services;
 
 public class YukiChatCompletion(ILLamaExecutor executor, IHistoryTransform? historyTransform = null) : IYukiChatCompletion {
     private const int MAX_TOOL_CALL_ITERATIONS = 7;
+    private const int MAX_NUDGES = 2;
+
     private readonly ILLamaExecutor _executor = executor ?? throw new ArgumentNullException(nameof(executor));
     private readonly IHistoryTransform _historyTransform = historyTransform ?? new LLamaTransforms.DefaultHistoryTransform();
 
@@ -22,8 +24,10 @@ public class YukiChatCompletion(ILLamaExecutor executor, IHistoryTransform? hist
     public async Task<IReadOnlyList<ChatMessageContent>> GetChatMessageContentsAsync(ChatHistory chatHistory, PromptExecutionSettings? executionSettings = null, Kernel? kernel = null, CancellationToken cancellationToken = default) {
         var workingHistory = new ChatHistory(chatHistory);
         var llamaSettings = executionSettings == null ? new LLamaSharpPromptExecutionSettings() : LLamaSharpPromptExecutionSettings.FromRequestSettings(executionSettings);
-        var grammarText = Utils.Utils.ReadGBNFFromFile("tool_calling.gbnf");
+
+        var grammarText = Utils.Utils.ReadGBNFFromFile("tool_calling.gbnf").TrimStart('\uFEFF');
         var grammar = new Grammar(grammarText, "root");
+
         var inferenceParams = new InferenceParams {
             MaxTokens = llamaSettings.MaxTokens ?? 512,
             AntiPrompts = ["<|im_end|>", "<|im_start|>"],
@@ -33,47 +37,118 @@ public class YukiChatCompletion(ILLamaExecutor executor, IHistoryTransform? hist
             }
         };
 
+        int nudgeCount = 0;
+
         for (int iteration = 0; iteration < MAX_TOOL_CALL_ITERATIONS; iteration++) {
             var prompt = BuildPromptFromHistory(workingHistory, kernel);
+            var responseText = await InferOnceAsync(prompt, inferenceParams, cancellationToken);
 
-            System.Diagnostics.Debug.WriteLine($"[YukiChatCompletion] PROMPT:\n{prompt}\n---END PROMPT---");
-
-            var responseBuilder = new StringBuilder();
-            await foreach (var token in _executor.InferAsync(prompt, inferenceParams, cancellationToken)) {
-                responseBuilder.Append(token);
+            // Пустой ответ — модель «отказалась». Подталкиваем её явной инструкцией.
+            if (string.IsNullOrWhiteSpace(responseText)) {
+                if (nudgeCount < MAX_NUDGES) {
+                    workingHistory.Add(new ChatMessageContent(AuthorRole.User,
+                        "Твой предыдущий ответ был пустым. Ты ОБЯЗАН вернуть валидный JSON: " +
+                        "{\"tool_call\": {\"name\": \"...\", \"arguments\": {...}}} или {\"message\": \"...\"}. " +
+                        "Не оставляй ответ пустым."));
+                    nudgeCount++;
+                    continue;
+                }
+                return Fail("Модель не сформировала ответ. Попробуйте переформулировать задачу.");
             }
-
-            var responseText = responseBuilder.ToString().Trim();
-
-            System.Diagnostics.Debug.WriteLine($"[YukiChatCompletion] RESPONSE:\n'{responseText}'\n---END RESPONSE---");
 
             if (TryParseToolCall(responseText, out var functionCall) && functionCall != null) {
                 if (kernel == null)
-                    return [new ChatMessageContent(AuthorRole.Assistant, "Модель запросила вызов инструмента, но Kernel не был передан в ChatCompletion.")];
+                    return Fail("Модель запросила вызов инструмента, но Kernel не был передан в ChatCompletion.");
 
-                var assistantMessage = new ChatMessageContent(AuthorRole.Assistant, [functionCall]);
-                workingHistory.Add(assistantMessage);
+                // Валидация: функция существует?
+                if (!FunctionExists(kernel, functionCall.FunctionName, functionCall.PluginName)) {
+                    var available = string.Join(", ", kernel.Plugins.GetFunctionsMetadata().Select(f => f.Name));
+                    workingHistory.Add(new ChatMessageContent(AuthorRole.User,
+                        $"Ошибка: функции '{functionCall.FunctionName}' не существует. " +
+                        $"Доступные функции: {available}. Выбери правильную или верни {{\"message\": \"...\"}}."));
+                    continue;
+                }
+
+                // Валидация: аргументы соответствуют схеме?
+                var validationError = ValidateArguments(kernel, functionCall.FunctionName, functionCall.Arguments);
+                if (validationError != null) {
+                    workingHistory.Add(new ChatMessageContent(AuthorRole.User,
+                        $"Ошибка аргументов для '{functionCall.FunctionName}': {validationError}. " +
+                        "Верни корректный JSON с правильными аргументами."));
+                    continue;
+                }
+
+                // Выполняем функцию
+                workingHistory.Add(new ChatMessageContent(AuthorRole.Assistant, [functionCall]));
 
                 FunctionResultContent result;
                 try {
                     result = await functionCall.InvokeAsync(kernel, cancellationToken);
                 }
                 catch (Exception ex) {
-                    result = new FunctionResultContent(functionCall.FunctionName, functionCall.PluginName, $"Ошибка выполнения функции: {ex.Message}");
+                    workingHistory.Add(new ChatMessageContent(AuthorRole.User,
+                        $"Ошибка выполнения '{functionCall.FunctionName}': {ex.Message}. " +
+                        "Попробуй другие аргументы или другой инструмент, либо верни {\"message\": \"...\"}."));
+                    continue;
                 }
 
                 workingHistory.Add(result.ToChatMessage());
                 continue;
             }
 
+            // Текстовый ответ
             var finalText = ExtractMessageFromEnvelope(responseText);
+            if (string.IsNullOrWhiteSpace(finalText)) {
+                if (nudgeCount < MAX_NUDGES) {
+                    workingHistory.Add(new ChatMessageContent(AuthorRole.User,
+                        "Твой ответ не содержит поля 'message'. Верни {\"message\": \"...\"} с ответом."));
+                    nudgeCount++;
+                    continue;
+                }
+                return Fail("Модель не сформировала корректный ответ.");
+            }
+
             return [new ChatMessageContent(AuthorRole.Assistant, finalText)];
         }
 
-        return [new ChatMessageContent(AuthorRole.Assistant, "Превышено максимальное число шагов вызова инструментов. Модель не смогла сформулировать финальный ответ.")];
+        return Fail("Превышено максимальное число шагов вызова инструментов. Модель не смогла сформулировать финальный ответ.");
     }
 
     public IAsyncEnumerable<StreamingChatMessageContent> GetStreamingChatMessageContentsAsync(ChatHistory chatHistory, PromptExecutionSettings? executionSettings = null, Kernel? kernel = null, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+
+    private async Task<string> InferOnceAsync(string prompt, InferenceParams inferenceParams, CancellationToken ct) {
+        var sb = new StringBuilder();
+        await foreach (var token in _executor.InferAsync(prompt, inferenceParams, ct)) {
+            sb.Append(token);
+        }
+        return sb.ToString().Trim();
+    }
+
+    private static IReadOnlyList<ChatMessageContent> Fail(string message) =>
+        [new ChatMessageContent(AuthorRole.Assistant, message)];
+
+    private static bool FunctionExists(Kernel kernel, string functionName, string? pluginName) {
+        var functions = kernel.Plugins.GetFunctionsMetadata();
+        if (!string.IsNullOrEmpty(pluginName))
+            return functions.Any(f => f.Name == functionName && f.PluginName == pluginName);
+        return functions.Any(f => f.Name == functionName);
+    }
+
+    private static string? ValidateArguments(Kernel kernel, string functionName, KernelArguments? arguments) {
+        var metadata = kernel.Plugins.GetFunctionsMetadata().FirstOrDefault(f => f.Name == functionName);
+        if (metadata == null)
+            return null;
+
+        var missing = metadata.Parameters
+            .Where(p => p.IsRequired && (arguments == null || !arguments.ContainsName(p.Name)))
+            .Select(p => p.Name)
+            .ToList();
+
+        if (missing.Count > 0)
+            return $"отсутствуют обязательные параметры: {string.Join(", ", missing)}";
+
+        return null;
+    }
 
     private static string BuildSystemPrompt(Kernel kernel) {
         var functions = kernel.Plugins.GetFunctionsMetadata();
@@ -97,24 +172,26 @@ public class YukiChatCompletion(ILLamaExecutor executor, IHistoryTransform? hist
     }
 
     private string BuildPromptFromHistory(ChatHistory history, Kernel? kernel) {
-        var augmentedHistory = new ChatHistory(history);
+        var systemContents = history
+            .Where(m => m.Role == AuthorRole.System)
+            .Select(m => m.Content)
+            .Where(c => !string.IsNullOrEmpty(c))
+            .ToList();
 
         if (kernel != null) {
             var toolsPrompt = BuildSystemPrompt(kernel);
             if (!string.IsNullOrEmpty(toolsPrompt))
-                augmentedHistory.Insert(0, new ChatMessageContent(AuthorRole.System, toolsPrompt));
+                systemContents.Insert(0, toolsPrompt);
         }
-
-        var systemContents = augmentedHistory.Where(m => m.Role == AuthorRole.System).Select(m => m.Content).Where(c => !string.IsNullOrEmpty(c));
-        var userAndAssistant = augmentedHistory.Where(m => m.Role != AuthorRole.System);
 
         var flattened = new ChatHistory();
         var combined = string.Join("\n\n", systemContents);
         if (!string.IsNullOrEmpty(combined))
             flattened.Add(new ChatMessageContent(AuthorRole.System, combined));
-        foreach (var m in userAndAssistant) {
-            var role = m.Role == AuthorRole.Tool ? AuthorRole.User : m.Role;
-            flattened.Add(new ChatMessageContent(role, FlattenMessage(m)));
+
+        foreach (var msg in history.Where(m => m.Role != AuthorRole.System)) {
+            var role = msg.Role == AuthorRole.Tool ? AuthorRole.User : msg.Role;
+            flattened.Add(new ChatMessageContent(role, FlattenMessage(msg)));
         }
 
         return _historyTransform.HistoryToText(flattened.ToLLamaSharpChatHistory());
@@ -165,7 +242,7 @@ public class YukiChatCompletion(ILLamaExecutor executor, IHistoryTransform? hist
                     _ => messageElement.GetRawText()
                 };
             }
-            
+
             return responseText;
         }
         catch (JsonException) {
@@ -173,7 +250,7 @@ public class YukiChatCompletion(ILLamaExecutor executor, IHistoryTransform? hist
         }
     }
 
-    private bool TryParseToolCall(string responseText, out FunctionCallContent? functionCall) {
+    private static bool TryParseToolCall(string responseText, out FunctionCallContent? functionCall) {
         functionCall = null;
         if (string.IsNullOrWhiteSpace(responseText)) return false;
 
@@ -194,8 +271,7 @@ public class YukiChatCompletion(ILLamaExecutor executor, IHistoryTransform? hist
             KernelArguments? arguments = null;
             if (toolCallElement.TryGetProperty("arguments", out var argsElement) &&
                 argsElement.ValueKind == JsonValueKind.Object) {
-                var argsDict = JsonSerializer.Deserialize<Dictionary<string, object?>>(
-                    argsElement.GetRawText());
+                var argsDict = JsonSerializer.Deserialize<Dictionary<string, object?>>(argsElement.GetRawText());
                 if (argsDict != null) {
                     var converted = argsDict.ToDictionary(
                         kvp => kvp.Key,
