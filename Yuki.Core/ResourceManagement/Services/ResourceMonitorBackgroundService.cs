@@ -42,7 +42,7 @@ public class ResourceMonitorBackgroundService(IVramProvider _vramProvider, IGpuL
                     _logger.LogInformation($"Resource manager: подтверждена смена нагрузки, {currentLayers} => {newLayers} слоёв");
 
                     await _hostAgent.SaySystemEventAsync($"[Системное событие] Ты заметила, что {direction}. Скажи об этом пользователю в своём стиле.");
-                    _hostAgent.ReloadEngine(newLayers);
+                    await _hostAgent.ReloadEngineAsync(newLayers);
                     _deficitStreak = _recoveryStreak = 0;
                 }
                 finally { _voice.EndBusy(); }

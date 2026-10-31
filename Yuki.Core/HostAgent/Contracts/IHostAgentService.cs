@@ -6,6 +6,6 @@ public interface IHostAgentService : IDisposable {
     IAsyncEnumerable<string> RespondToSystemEventAsync(string eventMessage, CancellationToken cancellationToken = default);
     IAsyncEnumerable<string> RespondToServantResultAsync(string result, CancellationToken cancellationToken = default);
     Task SaySystemEventAsync(string eventMessage, CancellationToken cancellationToken = default);
-    void ReloadEngine(int gpuLayerCount);
+    Task ReloadEngineAsync(int gpuLayerCount, CancellationToken cancellationToken = default);
     event Action<string>? ResponseGenerated;
 }

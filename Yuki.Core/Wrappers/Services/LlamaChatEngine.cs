@@ -7,6 +7,14 @@ using Yuki.Core.Wrappers.Models;
 namespace Yuki.Core.Wrappers.Services;
 
 public class LlamaChatEngine : ILlamaChatEngine {
+    private const float Temperature = 0.6f;
+    private const float RepeatPenalty = 1.1f;
+    private const float PresencePenalty = 0.3f;
+    private const float FrequencyPenalty = 0.3f;
+    private const int TopK = 40;
+    private const float TopP = 0.9f;
+    private const int MaxTokensPerResponse = 256;
+
     private readonly LLamaWeights _weights;
     private readonly LLamaContext _context;
     private readonly InteractiveExecutor _executor;
@@ -24,23 +32,30 @@ public class LlamaChatEngine : ILlamaChatEngine {
         _executor = new InteractiveExecutor(_context);
         _chat = settings.ExistingHistory;
 
-        _session = new ChatSession(_executor, _chat).WithHistoryTransform(new ModelChatTemplateTransform(_weights));
+        _session = new ChatSession(_executor, _chat)
+            .WithHistoryTransform(new ModelChatTemplateTransform(_weights));
     }
 
     public IAsyncEnumerable<string> RespondAsync(string userMessage, Grammar? grammar = null, CancellationToken cancellationToken = default) {
         var inferenceParams = new InferenceParams {
-            MaxTokens = 256,
+            MaxTokens = MaxTokensPerResponse,
+            AntiPrompts = ["<|im_end|>", "<|im_start|>"],
             SamplingPipeline = new DefaultSamplingPipeline {
                 Grammar = grammar ?? default,
-                Temperature = 0.7f,
-                TopK = 64,
-                TopP = 0.95f
+                Temperature = Temperature,
+                TopK = TopK,
+                TopP = TopP,
+                RepeatPenalty = RepeatPenalty,
+                PresencePenalty = PresencePenalty,
+                FrequencyPenalty = FrequencyPenalty,
             }
         };
-        
-        return _session.ChatAsync(new ChatHistory.Message(AuthorRole.User, userMessage), inferenceParams, cancellationToken);
+
+        return _session.ChatAsync(
+            new ChatHistory.Message(AuthorRole.User, userMessage),
+            inferenceParams,
+            cancellationToken);
     }
-    public void Dispose() {
-        _context?.Dispose();
-    }
+
+    public void Dispose() => _context?.Dispose();
 }
