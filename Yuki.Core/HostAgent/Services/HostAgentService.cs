@@ -123,7 +123,7 @@ public class HostAgentService : IHostAgentService {
             await foreach (var token in ExtractAndStreamMessage(stream, fullJson, cancellationToken))
                 yield return token;
 
-            _logger.LogInformation($"Сырой JSON от Gemma: {fullJson}");
+            _logger.LogInformation($"Сырой JSON: {fullJson}");
 
             if (allowToolCall)
                 ProcessToolCall(fullJson.ToString());

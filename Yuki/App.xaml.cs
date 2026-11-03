@@ -1,8 +1,9 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.AspNetCore.SignalR.Client;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using System.Windows;
 using Serilog;
+using System.Windows;
 using Yuki.Core.Extensions;
 using Yuki.Extensions;
 
@@ -13,6 +14,10 @@ public partial class App : Application {
     private readonly ILogger<App>? _logger;
     private static readonly Mutex _mutex = new(true, "YukiAppMutex");
     private bool _mutexAcquired = false;
+
+    // TODO УДАЛИТЬ! ПОДКЛЮЧЕНИЕ К ЧАТУ
+    private HubConnection? _connection;
+    private bool _isConnected = false;
 
     public App() {
         try {
@@ -54,7 +59,45 @@ public partial class App : Application {
             AppBootstrap.ImplementationVoiceCycle(voiceInteraction, ttsPlayer, hostAgent, _logger);
 
             await AppBootstrap.HostStart(mainWindowViewModel, _host);
+
+            // TODO УДАЛИТЬ! ПОДКЛЮЧЕНИЕ К ЧАТУ
+            if (_isConnected)
+                return;
+
+            _connection = new HubConnectionBuilder()
+                .WithUrl("http://localhost:5051/chat")
+                .WithAutomaticReconnect()
+                .Build();
+
+            _connection.On<string, string>("ReceiveMessage", (user, message) => {
+                Current.Dispatcher.Invoke(async () => {
+                    if (user != "Yuki") {
+                        _logger.LogInformation($"Получено: {user} - {message}");
+                        await AppBootstrap.SendToChat(hostAgent, _connection, message, _logger);
+                    }
+                    //hostAgent.RespondToUserAsync(message);
+                    //Messages.Add(new Message { Username = user, Text = message.Trim() });
+                });
+            });
+
+            try {
+                await _connection.StartAsync();
+                _isConnected = true;
+                _logger.LogInformation("Успешное подключение");
+                await _connection.InvokeAsync("SendMessage", "System", "Yuki подключилась");
+                //Messages.Add(new Message { Username = "System", Text = $"{Username} подключился" });
+            }
+            catch (Exception ex) {
+                _logger.LogError(ex, "Ошибка подключения!");
+                //Messages.Add(new Message { Username = "System", Text = $"Ошибка подключения: {ex.Message}" });
+            }
+
             base.OnStartup(e);
+            
+            _connection.Closed += _ => {
+                _isConnected = false;
+                return Task.CompletedTask;
+            };
         }
         catch (Exception ex) {
             Log.Error(ex, "Ошибка при инициализации приложения");

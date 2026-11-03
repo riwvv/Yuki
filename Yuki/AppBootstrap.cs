@@ -1,14 +1,19 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.AspNetCore.SignalR.Client;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using System.Data.Common;
 using System.Text;
+using System.Text.Json;
 using System.Windows;
 using Yuki.Core.HostAgent.Contracts;
+using Yuki.Core.ServantAgent.Contracts;
 using Yuki.Core.STT.Contracts;
 using Yuki.Core.STT.Services;
 using Yuki.Core.TTS.Contracts;
 using Yuki.ViewModels;
 using Yuki.Views;
+using static LLama.Common.ChatHistory;
 
 namespace Yuki;
 
@@ -102,5 +107,22 @@ public static class AppBootstrap {
     public static async Task HostStart(MainViewModel mainWindowViewModel, IHost host) {
         await host.StartAsync();
         mainWindowViewModel.State = "Готова";
+    }
+
+    // TODO УДАЛИТЬ! ПОДКЛЮЧЕНИЕ К ЧАТУ
+    public static async Task SendToChat(IHostAgentService hostAgent, IServantAgentService servantAgent, HubConnection connection, string message, ILogger logger) {
+        try {
+            var fullResponse = new StringBuilder();
+            await foreach (var messageBlock in hostAgent.RespondToUserAsync(message)) {
+                fullResponse.Append(messageBlock);
+            }
+
+            logger.LogInformation($"Обработано: {fullResponse.ToString()}");
+            await connection.InvokeAsync("SendMessage", "Yuki", fullResponse.ToString());
+            logger.LogInformation("Отправлено");
+        }
+        catch (Exception ex) {
+            logger.LogError(ex, "Ошибка отправки сообщения");
+        }
     }
 }
