@@ -14,21 +14,29 @@ using ChatHistory = Microsoft.SemanticKernel.ChatCompletion.ChatHistory;
 
 namespace Yuki.Core.ServantAgent.Services;
 
-public class ServantAgentService : IServantAgentService {
+public class ServantAgentService : IServantAgentService
+{
+    private const int CONTEXT_SIZE = 6144;
+
     private readonly Kernel _kernel;
+    private readonly LlamaWeightsProvider _weightsProvider;
     private readonly IChatCompletionService _chatService;
-    private readonly ILLamaExecutor _executor;
     private readonly OpenAIPromptExecutionSettings _settings;
     private readonly ILogger<ServantAgentService> _logger;
     private readonly string _systemPrompt;
     private readonly SemaphoreSlim _taskLock;
+    private readonly Lock _executorLock;
+    private readonly ModelParams _contextParams;
     private readonly TimeSpan _taskTimeout = TimeSpan.FromSeconds(60);
+
+    private ILLamaExecutor _executor;
 
     public event Action<string>? TaskCompleted;
 
     public ServantAgentService(LlamaWeightsProvider weightsProvider, ILogger<ServantAgentService> logger) {
         _logger = logger;
         _taskLock = new(1, 1);
+        _executorLock = new();
 
         _systemPrompt = Utils.ReadSystemPromptFromFile("ServantAgentPrompt.txt").TrimStart('\uFEFF');
 
@@ -36,13 +44,15 @@ public class ServantAgentService : IServantAgentService {
             MaxTokens = 512
         };
 
-        var contextParams = new ModelParams(string.Empty) {
-            ContextSize = 6144
+        _weightsProvider = weightsProvider;
+
+        _contextParams = new ModelParams(string.Empty) {
+            ContextSize = CONTEXT_SIZE
         };
 
-        _executor = new StatelessExecutor(weightsProvider.Weights, contextParams);
+        _executor = new StatelessExecutor(_weightsProvider.Weights, _contextParams);
 
-        var chatService = new YukiChatCompletion(_executor, new QwenChatMLTransform());
+        var chatService = new YukiChatCompletion(() => _executor, new QwenChatMLTransform());
 
         var builder = Kernel.CreateBuilder();
         builder.Services.AddSingleton<IChatCompletionService>(chatService);
@@ -57,6 +67,8 @@ public class ServantAgentService : IServantAgentService {
 
         _kernel = builder.Build();
         _chatService = _kernel.GetRequiredService<IChatCompletionService>();
+
+        _weightsProvider.WeightsReloaded += OnWeightsReloaded;
     }
 
     public async Task ExecuteTaskAsync(string taskDescription, CancellationToken ct = default) {
@@ -91,6 +103,20 @@ public class ServantAgentService : IServantAgentService {
             TaskCompleted?.Invoke("Произошла ошибка при выполнении задачи.");
         }
         finally {
+            _taskLock.Release();
+        }
+    }
+
+    private void OnWeightsReloaded(LLamaWeights newWeights)
+    {
+        _logger.LogInformation("Servant: веса перезагружены — пересоздаю executor");
+        _taskLock.Wait();
+        try
+        {
+            _executor = new StatelessExecutor(newWeights, _contextParams);
+        }
+        finally
+        {
             _taskLock.Release();
         }
     }

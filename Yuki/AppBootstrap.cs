@@ -110,7 +110,7 @@ public static class AppBootstrap {
     }
 
     // TODO УДАЛИТЬ! ПОДКЛЮЧЕНИЕ К ЧАТУ
-    public static async Task SendToChat(IHostAgentService hostAgent, IServantAgentService servantAgent, HubConnection connection, string message, ILogger logger) {
+    public static async Task SendToChat(IHostAgentService hostAgent, HubConnection connection, string message, ILogger logger) {
         try {
             var fullResponse = new StringBuilder();
             await foreach (var messageBlock in hostAgent.RespondToUserAsync(message)) {

@@ -12,11 +12,11 @@ using ChatHistory = Microsoft.SemanticKernel.ChatCompletion.ChatHistory;
 
 namespace Yuki.Core.Wrappers.Services;
 
-public class YukiChatCompletion(ILLamaExecutor executor, IHistoryTransform? historyTransform = null) : IYukiChatCompletion {
+public class YukiChatCompletion(Func<ILLamaExecutor> executorFactory, IHistoryTransform? historyTransform = null) : IYukiChatCompletion {
     private const int MAX_TOOL_CALL_ITERATIONS = 7;
     private const int MAX_NUDGES = 2;
 
-    private readonly ILLamaExecutor _executor = executor ?? throw new ArgumentNullException(nameof(executor));
+    private readonly Func<ILLamaExecutor> executorFactory = executorFactory ?? throw new ArgumentNullException(nameof(executorFactory));
     private readonly IHistoryTransform _historyTransform = historyTransform ?? new LLamaTransforms.DefaultHistoryTransform();
 
     public IReadOnlyDictionary<string, object?> Attributes => new Dictionary<string, object?>();
@@ -118,7 +118,9 @@ public class YukiChatCompletion(ILLamaExecutor executor, IHistoryTransform? hist
 
     private async Task<string> InferOnceAsync(string prompt, InferenceParams inferenceParams, CancellationToken ct) {
         var sb = new StringBuilder();
-        await foreach (var token in _executor.InferAsync(prompt, inferenceParams, ct)) {
+        var executor = executorFactory();
+        await foreach (var token in executor.InferAsync(prompt, inferenceParams, ct))
+        {
             sb.Append(token);
         }
         return sb.ToString().Trim();
