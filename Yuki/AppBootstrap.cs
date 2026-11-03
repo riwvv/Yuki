@@ -111,18 +111,38 @@ public static class AppBootstrap {
 
     // TODO УДАЛИТЬ! ПОДКЛЮЧЕНИЕ К ЧАТУ
     public static async Task SendToChat(IHostAgentService hostAgent, HubConnection connection, string message, ILogger logger) {
+        var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Action<string> handler = text => tcs.TrySetResult(text);
+        hostAgent.ResponseGenerated += handler;
+
         try {
             var fullResponse = new StringBuilder();
-            await foreach (var messageBlock in hostAgent.RespondToUserAsync(message)) {
+            await foreach (var messageBlock in hostAgent.RespondToUserAsync(message))
                 fullResponse.Append(messageBlock);
+
+            var first = fullResponse.ToString();
+            logger.LogInformation($"Обработано: {first}");
+            await connection.InvokeAsync("SendMessage", "Yuki", first);
+
+            if (hostAgent.IsServantTaskActive) {
+                logger.LogInformation("SendToChat: Servant выполняется — жду фоновый ответ");
+                try {
+                    var bg = await tcs.Task.WaitAsync(TimeSpan.FromSeconds(60));
+                    logger.LogInformation($"Фоновый ответ: {bg}");
+                    await connection.InvokeAsync("SendMessage", "Yuki", bg);
+                }
+                catch (TimeoutException) {
+                    logger.LogWarning("SendToChat: Servant не ответил за 60 секунд");
+                }
             }
 
-            logger.LogInformation($"Обработано: {fullResponse.ToString()}");
-            await connection.InvokeAsync("SendMessage", "Yuki", fullResponse.ToString());
             logger.LogInformation("Отправлено");
         }
         catch (Exception ex) {
             logger.LogError(ex, "Ошибка отправки сообщения");
+        }
+        finally {
+            hostAgent.ResponseGenerated -= handler;
         }
     }
 }

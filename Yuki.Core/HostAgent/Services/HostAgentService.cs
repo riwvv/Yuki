@@ -32,6 +32,9 @@ public class HostAgentService : IHostAgentService {
     private ILlamaChatEngine _engine;
     private int _currentGpuLayerCount;
 
+    private volatile bool _servantTaskActive;
+    public bool IsServantTaskActive => _servantTaskActive;
+
     public event Action<string>? ResponseGenerated;
 
     public int CurrentGpuLayerCount {
@@ -166,6 +169,10 @@ public class HostAgentService : IHostAgentService {
             }
 
             _logger.LogInformation($"System: Host делегирует задачу Servant'у: {task}");
+
+            // TODO УДАЛИТЬ!
+            _servantTaskActive = true;
+
             _ = Task.Run(async () => {
                 try { await _servantAgent.ExecuteTaskAsync(task); }
                 catch (Exception ex) { _logger.LogError(ex, "Ошибка при выполнении задачи Servant'ом"); }
@@ -202,6 +209,9 @@ public class HostAgentService : IHostAgentService {
         }
         catch (Exception ex) {
             _logger.LogError(ex, "Ошибка при обработке отчёта Servant'а");
+        }
+        finally {
+            _servantTaskActive = false;
         }
     }
 
