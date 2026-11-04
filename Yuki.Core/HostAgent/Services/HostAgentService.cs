@@ -68,12 +68,15 @@ public class HostAgentService : IHostAgentService {
         _servantAgent.TaskCompleted += OnServantTaskCompleted;
     }
 
-    public IAsyncEnumerable<string> RespondToUserAsync(string userMessage, CancellationToken cancellationToken = default) => GenerateResponseAsync(userMessage, _userInteractionGrammar, true, cancellationToken);
+    public IAsyncEnumerable<string> RespondToUserAsync(string userMessage, CancellationToken cancellationToken = default) {
+        TrimHistoryIfNeeded();
+        return GenerateResponseAsync(userMessage, _userInteractionGrammar, true, cancellationToken);
+    }
 
     public IAsyncEnumerable<string> RespondToSystemEventAsync(string eventMessage, CancellationToken cancellationToken = default) => GenerateResponseAsync(eventMessage, _dialogOnlyGrammar, false, cancellationToken);
 
     public IAsyncEnumerable<string> RespondToServantResultAsync(string result, CancellationToken cancellationToken = default) {
-        var prompt = $"[Системное событие] Servant вернул отчёт о задаче. Результат: {result}. " +
+        var prompt = $"[Системное событие: ОТВЕТ НА РЕЗУЛЬТАТ] Servant уже выполнил задачу. Результат: {result}. " +
                      "Сформулируй ответ пользователю, опираясь ТОЛЬКО на этот точный ответ и игнорируя любые свои предыдущие догадки.";
         return GenerateResponseAsync(prompt, _dialogOnlyGrammar, false, cancellationToken);
     }
@@ -115,8 +118,6 @@ public class HostAgentService : IHostAgentService {
         [EnumeratorCancellation] CancellationToken cancellationToken) {
         await _generationLock.WaitAsync(cancellationToken);
         try {
-            TrimHistoryIfNeeded();
-
             ILlamaChatEngine engine;
             lock (_reloadLock) engine = _engine;
 

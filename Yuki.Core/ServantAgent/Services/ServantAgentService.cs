@@ -16,7 +16,7 @@ namespace Yuki.Core.ServantAgent.Services;
 
 public class ServantAgentService : IServantAgentService
 {
-    private const int CONTEXT_SIZE = 6144;
+    private const int CONTEXT_SIZE = 8192;
 
     private readonly Kernel _kernel;
     private readonly LlamaWeightsProvider _weightsProvider;
@@ -25,7 +25,6 @@ public class ServantAgentService : IServantAgentService
     private readonly ILogger<ServantAgentService> _logger;
     private readonly string _systemPrompt;
     private readonly SemaphoreSlim _taskLock;
-    private readonly Lock _executorLock;
     private readonly ModelParams _contextParams;
     private readonly TimeSpan _taskTimeout = TimeSpan.FromSeconds(60);
 
@@ -36,12 +35,11 @@ public class ServantAgentService : IServantAgentService
     public ServantAgentService(LlamaWeightsProvider weightsProvider, ILogger<ServantAgentService> logger) {
         _logger = logger;
         _taskLock = new(1, 1);
-        _executorLock = new();
 
         _systemPrompt = Utils.ReadSystemPromptFromFile("ServantAgentPrompt.txt").TrimStart('\uFEFF');
 
         _settings = new OpenAIPromptExecutionSettings {
-            MaxTokens = 512
+            MaxTokens = 384
         };
 
         _weightsProvider = weightsProvider;
