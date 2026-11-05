@@ -119,6 +119,5 @@ public class ServantAgentService : IServantAgentService {
 
     public void Dispose() {
         _weightsProvider.WeightsReloaded -= OnWeightsReloaded;
-        _weightsProvider.Dispose();
     }
 }
