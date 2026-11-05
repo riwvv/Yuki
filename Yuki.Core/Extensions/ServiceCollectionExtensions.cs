@@ -30,6 +30,7 @@ public static class ServiceCollectionExtensions {
         services.Configure<AudioCaptureSettings>(configuration.GetSection("AudioCapture"));
         services.Configure<ResourceManagerSettings>(configuration.GetSection("ResourceManager"));
         services.Configure<YukiChatCompletionSettings>(configuration.GetSection("Servant:ChatCompletion"));
+        services.Configure<LlamaChatEngineSettings>(configuration.GetSection("Host:ChatEngine"));
 
         services.AddHttpClient("Vosk", client => {
             client.BaseAddress = new Uri(configuration.GetSection("STT:Vosk:BaseUrl").Get<string>() ?? "https://alphacephei.com/vosk/models/");
