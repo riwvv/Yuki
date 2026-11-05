@@ -65,7 +65,7 @@ public partial class App : Application {
                 return;
 
             _connection = new HubConnectionBuilder()
-                .WithUrl("http://localhost:5051/chat")
+                .WithUrl("http://yuki.riwvv.ru/chat")
                 .WithAutomaticReconnect()
                 .Build();
 
@@ -75,8 +75,6 @@ public partial class App : Application {
                         _logger.LogInformation($"Получено: {user} - {message}");
                         await AppBootstrap.SendToChat(hostAgent, _connection, message, _logger);
                     }
-                    //hostAgent.RespondToUserAsync(message);
-                    //Messages.Add(new Message { Username = user, Text = message.Trim() });
                 });
             });
 
@@ -85,11 +83,9 @@ public partial class App : Application {
                 _isConnected = true;
                 _logger.LogInformation("Успешное подключение");
                 await _connection.InvokeAsync("SendMessage", "System", "Yuki подключилась");
-                //Messages.Add(new Message { Username = "System", Text = $"{Username} подключился" });
             }
             catch (Exception ex) {
                 _logger.LogError(ex, "Ошибка подключения!");
-                //Messages.Add(new Message { Username = "System", Text = $"Ошибка подключения: {ex.Message}" });
             }
 
             base.OnStartup(e);
