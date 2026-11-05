@@ -8,6 +8,8 @@ public class LlamaWeightsProvider : IDisposable {
     public LLamaWeights Weights { get; private set; }
     public int GpuLayerCount { get; private set; }
 
+    public event Action<LLamaWeights>? WeightsReloaded;
+
     public LlamaWeightsProvider(string modelPath, int gpuLayerCount) {
         _modelPath = modelPath;
         GpuLayerCount = gpuLayerCount;
@@ -18,6 +20,8 @@ public class LlamaWeightsProvider : IDisposable {
         Weights.Dispose();
         GpuLayerCount = newGpuLayerCount;
         Weights = LoadWeights(newGpuLayerCount);
+
+        WeightsReloaded?.Invoke(Weights);
     }
 
     private LLamaWeights LoadWeights(int layers) => LLamaWeights.LoadFromFile(new ModelParams(_modelPath) { GpuLayerCount = layers });

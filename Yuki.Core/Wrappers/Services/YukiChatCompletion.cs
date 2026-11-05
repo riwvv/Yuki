@@ -1,84 +1,100 @@
-﻿using Microsoft.SemanticKernel;
+﻿using Microsoft.Extensions.Logging;
+using Microsoft.SemanticKernel;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using LLama;
+using LLama.Abstractions;
 using LLama.Common;
 using LLama.Sampling;
-using LLama.Abstractions;
 using LLamaSharp.SemanticKernel;
+using Yuki.Core.Configurations;
 using Yuki.Core.Wrappers.Contracts;
 using AuthorRole = Microsoft.SemanticKernel.ChatCompletion.AuthorRole;
 using ChatHistory = Microsoft.SemanticKernel.ChatCompletion.ChatHistory;
 
 namespace Yuki.Core.Wrappers.Services;
 
-public class YukiChatCompletion(ILLamaExecutor executor, IHistoryTransform? historyTransform = null) : IYukiChatCompletion {
-    private const int MAX_TOOL_CALL_ITERATIONS = 7;
-    private const int MAX_NUDGES = 2;
+public sealed class YukiChatCompletion : IYukiChatCompletion {
+    private readonly Func<ILLamaExecutor> _executorFactory;
+    private readonly IHistoryTransform _historyTransform;
+    private readonly YukiChatCompletionSettings _options;
+    private readonly ILogger<YukiChatCompletion>? _logger;
+    private readonly Lazy<Grammar> _grammar;
 
-    private readonly ILLamaExecutor _executor = executor ?? throw new ArgumentNullException(nameof(executor));
-    private readonly IHistoryTransform _historyTransform = historyTransform ?? new LLamaTransforms.DefaultHistoryTransform();
+    public YukiChatCompletion(Func<ILLamaExecutor> executorFactory, IHistoryTransform? historyTransform = null, YukiChatCompletionSettings? options = null, ILogger<YukiChatCompletion>? logger = null) {
+        _executorFactory = executorFactory ?? throw new ArgumentNullException(nameof(executorFactory));
+        _historyTransform = historyTransform ?? new LLamaTransforms.DefaultHistoryTransform();
+        _options = options ?? new YukiChatCompletionSettings();
+        _logger = logger;
+
+        _grammar = new Lazy<Grammar>(() => {
+            var text = Utils.Utils.ReadGBNFFromFile(_options.GrammarFileName).TrimStart('\uFEFF');
+            return new Grammar(text, _options.GrammarRootRule);
+        }, LazyThreadSafetyMode.ExecutionAndPublication);
+    }
 
     public IReadOnlyDictionary<string, object?> Attributes => new Dictionary<string, object?>();
 
     public async Task<IReadOnlyList<ChatMessageContent>> GetChatMessageContentsAsync(ChatHistory chatHistory, PromptExecutionSettings? executionSettings = null, Kernel? kernel = null, CancellationToken cancellationToken = default) {
+        ArgumentNullException.ThrowIfNull(chatHistory);
+
         var workingHistory = new ChatHistory(chatHistory);
         var llamaSettings = executionSettings == null ? new LLamaSharpPromptExecutionSettings() : LLamaSharpPromptExecutionSettings.FromRequestSettings(executionSettings);
 
-        var grammarText = Utils.Utils.ReadGBNFFromFile("tool_calling.gbnf").TrimStart('\uFEFF');
-        var grammar = new Grammar(grammarText, "root");
+        var inferenceParams = BuildInferenceParams(llamaSettings);
 
-        var inferenceParams = new InferenceParams {
-            MaxTokens = llamaSettings.MaxTokens ?? 512,
-            AntiPrompts = ["<|im_end|>", "<|im_start|>"],
-            SamplingPipeline = new DefaultSamplingPipeline {
-                Temperature = (float)(llamaSettings.Temperature == default ? 0.0f : llamaSettings.Temperature),
-                Grammar = grammar
-            }
-        };
+        var executor = _executorFactory();
 
-        int nudgeCount = 0;
+        var toolsPrompt = kernel != null ? BuildSystemPrompt(kernel) : null;
 
-        for (int iteration = 0; iteration < MAX_TOOL_CALL_ITERATIONS; iteration++) {
-            var prompt = BuildPromptFromHistory(workingHistory, kernel);
-            var responseText = await InferOnceAsync(prompt, inferenceParams, cancellationToken);
+        var emptyNudgeCount = 0;
+        var missingMessageNudgeCount = 0;
 
-            // Пустой ответ — модель «отказалась». Подталкиваем её явной инструкцией.
+        for (int iteration = 0; iteration < _options.MaxToolCallIterations; iteration++) {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var prompt = BuildPromptFromHistory(workingHistory, toolsPrompt);
+            var responseText = await InferOnceAsync(executor, prompt, inferenceParams, cancellationToken);
+
             if (string.IsNullOrWhiteSpace(responseText)) {
-                if (nudgeCount < MAX_NUDGES) {
+                _logger?.LogDebug("Итерация {Iter}: пустой ответ модели", iteration);
+                if (emptyNudgeCount < _options.MaxNudges) {
                     workingHistory.Add(new ChatMessageContent(AuthorRole.User,
                         "Твой предыдущий ответ был пустым. Ты ОБЯЗАН вернуть валидный JSON: " +
                         "{\"tool_call\": {\"name\": \"...\", \"arguments\": {...}}} или {\"message\": \"...\"}. " +
                         "Не оставляй ответ пустым."));
-                    nudgeCount++;
+                    emptyNudgeCount++;
                     continue;
                 }
-                return Fail("Модель не сформировала ответ. Попробуйте переформулировать задачу.");
+                return Fail("Не получилось получить ответ. Попробуй переформулировать.");
             }
 
             if (TryParseToolCall(responseText, out var functionCall) && functionCall != null) {
-                if (kernel == null)
+                if (kernel == null) {
+                    _logger?.LogWarning("Модель запросила tool_call, но kernel не передан");
                     return Fail("Модель запросила вызов инструмента, но Kernel не был передан в ChatCompletion.");
+                }
 
-                // Валидация: функция существует?
                 if (!FunctionExists(kernel, functionCall.FunctionName, functionCall.PluginName)) {
                     var available = string.Join(", ", kernel.Plugins.GetFunctionsMetadata().Select(f => f.Name));
+                    _logger?.LogWarning("Модель запросила несуществующую функцию: {Function}", functionCall.FunctionName);
                     workingHistory.Add(new ChatMessageContent(AuthorRole.User,
                         $"Ошибка: функции '{functionCall.FunctionName}' не существует. " +
                         $"Доступные функции: {available}. Выбери правильную или верни {{\"message\": \"...\"}}."));
                     continue;
                 }
 
-                // Валидация: аргументы соответствуют схеме?
                 var validationError = ValidateArguments(kernel, functionCall.FunctionName, functionCall.Arguments);
                 if (validationError != null) {
+                    _logger?.LogWarning("Ошибка валидации аргументов {Function}: {Error}",
+                        functionCall.FunctionName, validationError);
                     workingHistory.Add(new ChatMessageContent(AuthorRole.User,
                         $"Ошибка аргументов для '{functionCall.FunctionName}': {validationError}. " +
                         "Верни корректный JSON с правильными аргументами."));
                     continue;
                 }
 
-                // Выполняем функцию
                 workingHistory.Add(new ChatMessageContent(AuthorRole.Assistant, [functionCall]));
 
                 FunctionResultContent result;
@@ -86,6 +102,7 @@ public class YukiChatCompletion(ILLamaExecutor executor, IHistoryTransform? hist
                     result = await functionCall.InvokeAsync(kernel, cancellationToken);
                 }
                 catch (Exception ex) {
+                    _logger?.LogError(ex, "Ошибка выполнения функции {Function}", functionCall.FunctionName);
                     workingHistory.Add(new ChatMessageContent(AuthorRole.User,
                         $"Ошибка выполнения '{functionCall.FunctionName}': {ex.Message}. " +
                         "Попробуй другие аргументы или другой инструмент, либо верни {\"message\": \"...\"}."));
@@ -96,42 +113,78 @@ public class YukiChatCompletion(ILLamaExecutor executor, IHistoryTransform? hist
                 continue;
             }
 
-            // Текстовый ответ
             var finalText = ExtractMessageFromEnvelope(responseText);
             if (string.IsNullOrWhiteSpace(finalText)) {
-                if (nudgeCount < MAX_NUDGES) {
+                _logger?.LogDebug("Итерация {Iter}: ответ без поля message: {Response}",
+                    iteration, responseText);
+                if (missingMessageNudgeCount < _options.MaxNudges) {
                     workingHistory.Add(new ChatMessageContent(AuthorRole.User,
                         "Твой ответ не содержит поля 'message'. Верни {\"message\": \"...\"} с ответом."));
-                    nudgeCount++;
+                    missingMessageNudgeCount++;
                     continue;
                 }
                 return Fail("Модель не сформировала корректный ответ.");
             }
 
+            _logger?.LogDebug("Задача выполнена за {Iter} итераций", iteration + 1);
             return [new ChatMessageContent(AuthorRole.Assistant, finalText)];
         }
 
-        return Fail("Превышено максимальное число шагов вызова инструментов. Модель не смогла сформулировать финальный ответ.");
+        _logger?.LogWarning("Превышено число итераций tool_call: {Max}", _options.MaxToolCallIterations);
+        return Fail("Слишком много шагов для выполнения. Попробуй упростить задачу.");
     }
 
-    public IAsyncEnumerable<StreamingChatMessageContent> GetStreamingChatMessageContentsAsync(ChatHistory chatHistory, PromptExecutionSettings? executionSettings = null, Kernel? kernel = null, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+    /// <summary>
+    /// Fallback для SK, если он вызовет streaming-версию.
+    /// Настоящего стриминга нет — отдаём результат одним куском,
+    /// но не бросаем NotImplementedException.
+    /// </summary>
+    public async IAsyncEnumerable<StreamingChatMessageContent> GetStreamingChatMessageContentsAsync(ChatHistory chatHistory, PromptExecutionSettings? executionSettings = null, Kernel? kernel = null, [EnumeratorCancellation] CancellationToken cancellationToken = default) {
+        var results = await GetChatMessageContentsAsync(chatHistory, executionSettings, kernel, cancellationToken);
+        foreach (var msg in results) {
+            yield return new StreamingChatMessageContent(msg.Role, msg.Content ?? string.Empty);
+        }
+    }
 
-    private async Task<string> InferOnceAsync(string prompt, InferenceParams inferenceParams, CancellationToken ct) {
+    private InferenceParams BuildInferenceParams(LLamaSharpPromptExecutionSettings settings) {
+        var antiPrompts = new List<string>(_options.AntiPrompts);
+        if (settings.StopSequences is { Count: > 0 })
+            antiPrompts.AddRange(settings.StopSequences);
+
+        var temperature = settings.Temperature == default ? (float)_options.DefaultTemperature : (float)settings.Temperature;
+
+        var defaults = new DefaultSamplingPipeline();
+
+        var pipeline = new DefaultSamplingPipeline {
+            Grammar = _grammar.Value,
+            Temperature = temperature,
+            TopK = _options.TopK ?? defaults.TopK,
+            TopP = _options.TopP ?? defaults.TopP,
+            RepeatPenalty = _options.RepeatPenalty ?? defaults.RepeatPenalty,
+            PresencePenalty = _options.PresencePenalty ?? defaults.PresencePenalty,
+            FrequencyPenalty = _options.FrequencyPenalty ?? defaults.FrequencyPenalty,
+        };
+
+        return new InferenceParams {
+            MaxTokens = settings.MaxTokens ?? _options.DefaultMaxTokens,
+            AntiPrompts = antiPrompts,
+            SamplingPipeline = pipeline
+        };
+    }
+
+    private static async Task<string> InferOnceAsync(ILLamaExecutor executor, string prompt, InferenceParams inferenceParams, CancellationToken ct) {
         var sb = new StringBuilder();
-        await foreach (var token in _executor.InferAsync(prompt, inferenceParams, ct)) {
+        await foreach (var token in executor.InferAsync(prompt, inferenceParams, ct)) {
             sb.Append(token);
         }
         return sb.ToString().Trim();
     }
 
-    private static IReadOnlyList<ChatMessageContent> Fail(string message) =>
-        [new ChatMessageContent(AuthorRole.Assistant, message)];
+    private static IReadOnlyList<ChatMessageContent> Fail(string message) => [new ChatMessageContent(AuthorRole.Assistant, message)];
 
     private static bool FunctionExists(Kernel kernel, string functionName, string? pluginName) {
         var functions = kernel.Plugins.GetFunctionsMetadata();
-        if (!string.IsNullOrEmpty(pluginName))
-            return functions.Any(f => f.Name == functionName && f.PluginName == pluginName);
-        return functions.Any(f => f.Name == functionName);
+        return string.IsNullOrEmpty(pluginName) ? functions.Any(f => f.Name == functionName) : functions.Any(f => f.Name == functionName && f.PluginName == pluginName);
     }
 
     private static string? ValidateArguments(Kernel kernel, string functionName, KernelArguments? arguments) {
@@ -144,10 +197,7 @@ public class YukiChatCompletion(ILLamaExecutor executor, IHistoryTransform? hist
             .Select(p => p.Name)
             .ToList();
 
-        if (missing.Count > 0)
-            return $"отсутствуют обязательные параметры: {string.Join(", ", missing)}";
-
-        return null;
+        return missing.Count > 0 ? $"отсутствуют обязательные параметры: {string.Join(", ", missing)}" : null;
     }
 
     private static string BuildSystemPrompt(Kernel kernel) {
@@ -167,22 +217,18 @@ public class YukiChatCompletion(ILLamaExecutor executor, IHistoryTransform? hist
             var parameters = string.Join(", ", func.Parameters.Select(x => $"{x.Name} ({x.ParameterType?.Name})"));
             sb.AppendLine($" Parameters: {parameters}");
         }
-
         return sb.ToString();
     }
 
-    private string BuildPromptFromHistory(ChatHistory history, Kernel? kernel) {
+    private string BuildPromptFromHistory(ChatHistory history, string? precomputedToolsPrompt) {
         var systemContents = history
             .Where(m => m.Role == AuthorRole.System)
             .Select(m => m.Content)
             .Where(c => !string.IsNullOrEmpty(c))
             .ToList();
 
-        if (kernel != null) {
-            var toolsPrompt = BuildSystemPrompt(kernel);
-            if (!string.IsNullOrEmpty(toolsPrompt))
-                systemContents.Insert(0, toolsPrompt);
-        }
+        if (!string.IsNullOrEmpty(precomputedToolsPrompt))
+            systemContents.Insert(0, precomputedToolsPrompt);
 
         var flattened = new ChatHistory();
         var combined = string.Join("\n\n", systemContents);
@@ -231,19 +277,15 @@ public class YukiChatCompletion(ILLamaExecutor executor, IHistoryTransform? hist
         try {
             using var doc = JsonDocument.Parse(responseText);
             var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return responseText;
 
-            if (root.ValueKind != JsonValueKind.Object)
-                return responseText;
+            if (!root.TryGetProperty("message", out var messageElement)) return responseText;
 
-            if (root.TryGetProperty("message", out var messageElement)) {
-                return messageElement.ValueKind switch {
-                    JsonValueKind.String => messageElement.GetString() ?? string.Empty,
-                    JsonValueKind.Null => string.Empty,
-                    _ => messageElement.GetRawText()
-                };
-            }
-
-            return responseText;
+            return messageElement.ValueKind switch {
+                JsonValueKind.String => messageElement.GetString() ?? string.Empty,
+                JsonValueKind.Null => string.Empty,
+                _ => messageElement.GetRawText()
+            };
         }
         catch (JsonException) {
             return responseText;
@@ -271,19 +313,23 @@ public class YukiChatCompletion(ILLamaExecutor executor, IHistoryTransform? hist
             KernelArguments? arguments = null;
             if (toolCallElement.TryGetProperty("arguments", out var argsElement) &&
                 argsElement.ValueKind == JsonValueKind.Object) {
-                var argsDict = JsonSerializer.Deserialize<Dictionary<string, object?>>(argsElement.GetRawText());
-                if (argsDict != null) {
-                    var converted = argsDict.ToDictionary(
-                        kvp => kvp.Key,
-                        kvp => kvp.Value is JsonElement je ? ConvertJsonElement(je) : kvp.Value);
-                    arguments = new KernelArguments(converted);
+                try {
+                    var argsDict = JsonSerializer.Deserialize<Dictionary<string, object?>>(argsElement.GetRawText());
+                    if (argsDict != null) {
+                        var converted = argsDict.ToDictionary(
+                            kvp => kvp.Key,
+                            kvp => kvp.Value is JsonElement je ? ConvertJsonElement(je) : kvp.Value);
+                        arguments = new KernelArguments(converted);
+                    }
+                }
+                catch (JsonException) {
+                    // Битые arguments — вернём tool_call с null, валидация ниже это поймает
                 }
             }
 
             functionCall = new FunctionCallContent(
                 functionName: functionName,
                 arguments: arguments);
-
             return true;
         }
         catch (JsonException) {
@@ -291,14 +337,12 @@ public class YukiChatCompletion(ILLamaExecutor executor, IHistoryTransform? hist
         }
     }
 
-    private static object? ConvertJsonElement(JsonElement element) {
-        return element.ValueKind switch {
-            JsonValueKind.String => element.GetString(),
-            JsonValueKind.Number => element.TryGetInt64(out var l) ? l : element.GetDouble(),
-            JsonValueKind.True => true,
-            JsonValueKind.False => false,
-            JsonValueKind.Null => null,
-            _ => element.GetRawText()
-        };
-    }
+    private static object? ConvertJsonElement(JsonElement element) => element.ValueKind switch {
+        JsonValueKind.String => element.GetString(),
+        JsonValueKind.Number => element.TryGetInt64(out var l) ? l : element.GetDouble(),
+        JsonValueKind.True => true,
+        JsonValueKind.False => false,
+        JsonValueKind.Null => null,
+        _ => element.GetRawText()
+    };
 }
