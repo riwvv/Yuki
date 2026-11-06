@@ -31,6 +31,9 @@ public class ServantAgentService : IServantAgentService {
 
     private ILLamaExecutor _executor;
 
+    // свободен ли
+    public bool IsIdle => _taskLock.CurrentCount == 1;
+
     public event Action<string>? TaskCompleted;
 
     public ServantAgentService(LlamaWeightsProvider weightsProvider, IOptions<YukiChatCompletionSettings> chatCompletionOptions, ILogger<ServantAgentService> logger, ILogger<YukiChatCompletion> chatCompletionLogger) {
@@ -106,15 +109,15 @@ public class ServantAgentService : IServantAgentService {
         }
     }
 
+    // захват лока
+    public async Task<bool> TryAcquireReloadLockAsync(TimeSpan timeout, CancellationToken ct = default) => await _taskLock.WaitAsync(timeout, ct);
+
+    // освобождаем лок
+    public void ReleaseReloadLock() => _taskLock.Release();
+
     private void OnWeightsReloaded(LLamaWeights newWeights) {
         _logger.LogInformation("Servant: веса перезагружены — пересоздаю executor");
-        _taskLock.Wait();
-        try {
-            _executor = new StatelessExecutor(newWeights, _contextParams);
-        }
-        finally {
-            _taskLock.Release();
-        }
+        _executor = new StatelessExecutor(newWeights, _contextParams);
     }
 
     public void Dispose() {

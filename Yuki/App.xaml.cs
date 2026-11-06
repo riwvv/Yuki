@@ -39,18 +39,15 @@ public partial class App : Application {
         try {
             ArgumentNullException.ThrowIfNull(_host);
             ArgumentNullException.ThrowIfNull(_logger);
-
             AppBootstrap.HostValidation(_mutex);
             _mutexAcquired = true;
 
             var mainWindowViewModel = AppBootstrap.InitializationAndStartupMainWindow(_host);
-
             await AppBootstrap.VoskInitialization(mainWindowViewModel, _host);
 
             var ttsPlayer =  await AppBootstrap.TtsInitialization(mainWindowViewModel, _host, _logger);
             var voiceInteraction = await AppBootstrap.SttInitialization(mainWindowViewModel, _host, _logger);
             var hostAgent = AppBootstrap.HostAgentInitialization(_host);
-
             AppBootstrap.ImplementationVoiceCycle(voiceInteraction, ttsPlayer, hostAgent, _logger);
 
             await AppBootstrap.HostStart(mainWindowViewModel, _host);

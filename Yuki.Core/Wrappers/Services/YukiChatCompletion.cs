@@ -87,8 +87,7 @@ public sealed class YukiChatCompletion : IYukiChatCompletion {
 
                 var validationError = ValidateArguments(kernel, functionCall.FunctionName, functionCall.Arguments);
                 if (validationError != null) {
-                    _logger?.LogWarning("Ошибка валидации аргументов {Function}: {Error}",
-                        functionCall.FunctionName, validationError);
+                    _logger?.LogWarning("Ошибка валидации аргументов {Function}: {Error}", functionCall.FunctionName, validationError);
                     workingHistory.Add(new ChatMessageContent(AuthorRole.User,
                         $"Ошибка аргументов для '{functionCall.FunctionName}': {validationError}. " +
                         "Верни корректный JSON с правильными аргументами."));
@@ -115,11 +114,9 @@ public sealed class YukiChatCompletion : IYukiChatCompletion {
 
             var finalText = ExtractMessageFromEnvelope(responseText);
             if (string.IsNullOrWhiteSpace(finalText)) {
-                _logger?.LogDebug("Итерация {Iter}: ответ без поля message: {Response}",
-                    iteration, responseText);
+                _logger?.LogDebug("Итерация {Iter}: ответ без поля message: {Response}", iteration, responseText);
                 if (missingMessageNudgeCount < _options.MaxNudges) {
-                    workingHistory.Add(new ChatMessageContent(AuthorRole.User,
-                        "Твой ответ не содержит поля 'message'. Верни {\"message\": \"...\"} с ответом."));
+                    workingHistory.Add(new ChatMessageContent(AuthorRole.User, "Твой ответ не содержит поля 'message'. Верни {\"message\": \"...\"} с ответом."));
                     missingMessageNudgeCount++;
                     continue;
                 }

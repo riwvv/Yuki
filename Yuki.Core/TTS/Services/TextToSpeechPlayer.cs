@@ -19,6 +19,14 @@ public sealed class TextToSpeechPlayer : ITextToSpeechPlayer {
     private IWavePlayer? _currentOutput;
     private CancellationTokenSource? _currentPlaybackCts;
 
+    public bool IsSpeaking {
+        get {
+            lock (_playbackLock) {
+                return _queue.Reader.Count > 0 || _currentOutput?.PlaybackState == PlaybackState.Playing;
+            }
+        }
+    }
+
     public TextToSpeechPlayer(ITextToSpeechCore tts, Style style, ILogger<TextToSpeechPlayer> logger) {
         _tts = tts;
         _style = style;
@@ -47,14 +55,6 @@ public sealed class TextToSpeechPlayer : ITextToSpeechPlayer {
             _currentOutput?.Stop();
         }
         while (_queue.Reader.TryRead(out _)) { }
-    }
-
-    public bool IsSpeaking {
-        get {
-            lock (_playbackLock) {
-                return _queue.Reader.Count > 0 || _currentOutput?.PlaybackState == PlaybackState.Playing;
-            }
-        }
     }
 
     private async Task ProcessQueueAsync() {
