@@ -144,90 +144,6 @@ public class FileSystemPlugin {
         }
     }
 
-    //[KernelFunction]
-    //[Description("Удаляет файл в указаной специальной папке")]
-    //public async Task<string> DeleteFileInFolder([Description("Название одной из папок: downloads, documents, pictures, videos, music, desktop")] string folderName, [Description("Название файла")] string fileName, [Description("Тип файла, например: текстовик, презентация, фото, видео и т.д. (если указан, но не обязателен, иначе оставить как null)")] string? fileType = null) {
-    //    if (!SpecialFolderValidation(folderName)) {
-    //        var error = new {
-    //            status = "ERROR",
-    //            cause = folderName,
-    //            description = $"Указано не корректное название папки, не соответствует поддерживаемому списку: {_folderNames}"
-    //        };
-
-    //        return JsonSerializer.Serialize(error);
-    //    }
-    //    if (!FileNameValidation(fileName)) {
-    //        var error = new {
-    //            status = "ERROR",
-    //            cause = fileName,
-    //            description = $"Название файла не может быть пустым и не должно содержать недопустимые символы: {string.Join(", ", fileName.Where(c => invalidCharsForName.Contains(c)).Distinct())}"
-    //        };
-
-    //        return JsonSerializer.Serialize(error);
-    //    }
-
-    //    try {
-    //        string path = GetFullFolderPath(folderName);
-    //        string deletedFilePath = SearchForRelevantFile(path, fileName, fileType);
-
-    //        if (string.IsNullOrEmpty(deletedFilePath)) {
-    //            var errorPath = new {
-    //                status = "ERROR",
-    //                cause = deletedFilePath,
-    //                description = "Не корректный путь файла"
-    //            };
-
-    //            return JsonSerializer.Serialize(errorPath);
-    //        }
-    //        if (!File.Exists(deletedFilePath)) {
-    //            var errorExists = new {
-    //                status = "ERROR",
-    //                cause = deletedFilePath,
-    //                description = "Файл не найден"
-    //            };
-
-    //            return JsonSerializer.Serialize(errorExists);
-    //        }
-
-    //        DialogResult confirmation = MessageBox.Show(
-    //            $"Вы уверены, что хотите удалить файл?\n{deletedFilePath}",
-    //            "Подтверждение действия",
-    //            MessageBoxButtons.YesNo,
-    //            MessageBoxIcon.Question);
-
-    //        if (confirmation == DialogResult.Yes) {
-    //            FileSystem.DeleteFile(deletedFilePath, UIOption.OnlyErrorDialogs, RecycleOption.SendToRecycleBin);
-
-    //            string name = GetFullFileNameFromPath(deletedFilePath);
-    //            var result = new {
-    //                status = "DONE",
-    //                message = $"Файл {name} успешно удалён",
-    //                deletedFile = name,
-    //                fullFilePath = deletedFilePath
-    //            };
-
-    //            return JsonSerializer.Serialize(result);
-    //        }
-
-    //        var error = new {
-    //            status = "WARNING",
-    //            cause = confirmation,
-    //            description = "Пользователь нажал отказ на удаление"
-    //        };
-
-    //        return JsonSerializer.Serialize(error);
-    //    }
-    //    catch (Exception ex) {
-    //        var error = new {
-    //            status = "ERROR",
-    //            cause = "Exception",
-    //            description = ex.Message
-    //        };
-
-    //        return JsonSerializer.Serialize(error);
-    //    }
-    //}
-
     [KernelFunction]
     [Description("Перемещает файл из одной папки в другую (в рамках специальных папок), например: перемести текстовик тест из загрузок на рабочий стол")]
     public async Task<string> MoveFileFromFolderToFolder(
@@ -265,6 +181,15 @@ public class FileSystemPlugin {
 
         try {
             string movedFilePath = SearchForRelevantFile(GetFullFolderPath(startFolder), fileName, fileType);
+
+            if (string.IsNullOrEmpty(movedFilePath) || !File.Exists(movedFilePath)) {
+                return JsonSerializer.Serialize(new {
+                    status = "ERROR",
+                    cause = fileName,
+                    description = $"Файл '{fileName}' не найден в папке {startFolder}"
+                });
+            }
+
             string foundFileName = GetFullFileNameFromPath(movedFilePath);
 
             string finishPath = GetFullFolderPath(finishFolder);
@@ -454,7 +379,8 @@ public class FileSystemPlugin {
                 return JsonSerializer.Serialize(error);
             }
 
-            string newFullPath = Path.Combine(path, newFileName + oldFullPath[oldFullPath.LastIndexOf(@".")..]);
+            string oldExtension = Path.GetExtension(oldFullPath);
+            string newFullPath = Path.Combine(path, newFileName + oldExtension);
 
             if (File.Exists(newFullPath)) {
                 var error = new {
@@ -526,8 +452,11 @@ public class FileSystemPlugin {
         List<string> files = [..Directory.GetFiles(path)];
 
         List<string>? targetFileTypes = GetRecognizedFileType(targetFileType);
-        string patern = targetFileTypes == null ? @$"{FormattingFileName(targetFileName)}(\w*)" : @$"{FormattingFileName(targetFileName)}(\w*)({string.Join("|", targetFileTypes!.Select(Regex.Escape))})";
-        Regex regex = new(patern, RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        var escapedName = Regex.Escape(FormattingFileName(targetFileName));
+        string pattern = targetFileTypes == null
+            ? @$"{escapedName}(\w*)"
+            : @$"{escapedName}(\w*)({string.Join("|", targetFileTypes!.Select(Regex.Escape))})";
+        Regex regex = new($"^{pattern}", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         Dictionary<string, double> results = [];
 
@@ -593,10 +522,18 @@ public class FileSystemPlugin {
     };
 
     private static long RecursivelyGettingTheDirectorySize(DirectoryInfo dir) {
-        long size = dir.GetFiles().Sum(file => file.Length);
+        long size = 0;
+        try {
+            size = dir.GetFiles().Sum(file => file.Length);
+        }
+        catch (UnauthorizedAccessException) { }
 
-        size += dir.GetDirectories().Sum(RecursivelyGettingTheDirectorySize);
-
+        foreach (var subDir in dir.GetDirectories()) {
+            try {
+                size += RecursivelyGettingTheDirectorySize(subDir);
+            }
+            catch (UnauthorizedAccessException) { }
+        }
         return size;
     }
 

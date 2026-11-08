@@ -3,7 +3,6 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
-using Microsoft.SemanticKernel.Connectors.OpenAI;
 using LLama;
 using LLama.Abstractions;
 using LLama.Common;
@@ -20,7 +19,7 @@ public class ServantAgentService : IServantAgentService {
     private readonly Kernel _kernel;
     private readonly LlamaWeightsProvider _weightsProvider;
     private readonly IChatCompletionService _chatService;
-    private readonly OpenAIPromptExecutionSettings _settings;
+    private readonly PromptExecutionSettings _settings;
     private readonly ILogger<ServantAgentService> _logger;
     private readonly string _systemPrompt;
     private readonly SemaphoreSlim _taskLock;
@@ -40,9 +39,7 @@ public class ServantAgentService : IServantAgentService {
 
         _systemPrompt = Utils.ReadSystemPromptFromFile("ServantAgentPrompt.txt").TrimStart('\uFEFF');
 
-        _settings = new OpenAIPromptExecutionSettings {
-            MaxTokens = 512
-        };
+        _settings = new PromptExecutionSettings();
 
         _weightsProvider = weightsProvider;
 
@@ -120,5 +117,6 @@ public class ServantAgentService : IServantAgentService {
 
     public void Dispose() {
         _weightsProvider.WeightsReloaded -= OnWeightsReloaded;
+        _taskLock.Dispose();
     }
 }

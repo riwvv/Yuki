@@ -8,7 +8,6 @@ using Yuki.Core.Wrappers.Models;
 namespace Yuki.Core.Wrappers.Services;
 
 public class LlamaChatEngine : ILlamaChatEngine {
-    private readonly LLamaWeights _weights;
     private readonly LLamaContext _context;
     private readonly InteractiveExecutor _executor;
     private readonly ChatHistory _chat;
@@ -16,19 +15,18 @@ public class LlamaChatEngine : ILlamaChatEngine {
     private readonly LlamaChatEngineSettings _settings;
 
     public LlamaChatEngine(LlamaChatEngineOptions options, LlamaChatEngineSettings? settings = null) {
-        _weights = options.Weights;
         _settings = settings ?? new LlamaChatEngineSettings();
 
         var contextParams = new ModelParams(string.Empty) {
             ContextSize = options.ContextSize,
         };
 
-        _context = _weights.CreateContext(contextParams);
+        _context = options.Weights.CreateContext(contextParams);
         _executor = new InteractiveExecutor(_context);
         _chat = options.ExistingHistory;
 
         _session = new ChatSession(_executor, _chat)
-            .WithHistoryTransform(new ModelChatTemplateTransform(_weights));
+            .WithHistoryTransform(new ModelChatTemplateTransform(options.Weights));
     }
 
     public IAsyncEnumerable<string> RespondAsync(string userMessage, Grammar? grammar = null, CancellationToken cancellationToken = default) {

@@ -66,11 +66,7 @@ public static class ServiceCollectionExtensions {
             return Helper.LoadVoiceStyle(voiceStylePath);
         });
         services.AddSingleton<IUnicodeProcessor, UnicodeProcessor>();
-        services.AddSingleton<ITextToSpeechCore>(sp => {
-            var config = sp.GetRequiredService<Config>();
-            var onnxDir = Utils.GetTtsResourcePath("onnx");
-            return new TextToSpeechCore(config, onnxDir);
-        });
+        services.AddSingleton<ITextToSpeechCore>(sp => Helper.LoadTextToSpeech(sp.GetRequiredService<Config>(), Utils.GetTtsResourcePath("onnx")));
         services.AddSingleton<ITextToSpeechPlayer>(sp => {
             var tts = sp.GetRequiredService<ITextToSpeechCore>();
             var style = sp.GetRequiredService<Style>();
