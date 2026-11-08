@@ -1,13 +1,13 @@
-﻿using Microsoft.Extensions.Logging;
-using Microsoft.SemanticKernel;
-using System.Runtime.CompilerServices;
-using System.Text;
-using System.Text.Json;
-using LLama;
+﻿using LLama;
 using LLama.Abstractions;
 using LLama.Common;
 using LLama.Sampling;
 using LLamaSharp.SemanticKernel;
+using Microsoft.Extensions.Logging;
+using Microsoft.SemanticKernel;
+using System.Runtime.CompilerServices;
+using System.Text;
+using System.Text.Json;
 using Yuki.Core.Configurations;
 using Yuki.Core.Wrappers.Contracts;
 using AuthorRole = Microsoft.SemanticKernel.ChatCompletion.AuthorRole;
@@ -58,7 +58,7 @@ public sealed class YukiChatCompletion : IYukiChatCompletion {
             var responseText = await InferOnceAsync(executor, prompt, inferenceParams, cancellationToken);
 
             if (string.IsNullOrWhiteSpace(responseText)) {
-                _logger?.LogDebug("Итерация {Iter}: пустой ответ модели", iteration);
+                _logger?.LogWarning($"Итерация {iteration}: пустой ответ модели");
                 if (emptyNudgeCount < _options.MaxNudges) {
                     workingHistory.Add(new ChatMessageContent(AuthorRole.User,
                         "Твой предыдущий ответ был пустым. Ты ОБЯЗАН вернуть валидный JSON: " +
@@ -70,7 +70,7 @@ public sealed class YukiChatCompletion : IYukiChatCompletion {
                 return Fail("Не получилось получить ответ. Попробуй переформулировать.");
             }
 
-            if (TryParseToolCall(responseText, out var functionCall) && functionCall != null) {
+            if (TryParseToolCall(kernel, responseText, out var functionCall) && functionCall != null) {
                 if (kernel == null) {
                     _logger?.LogWarning("Модель запросила tool_call, но kernel не передан");
                     return Fail("Модель запросила вызов инструмента, но Kernel не был передан в ChatCompletion.");
@@ -114,7 +114,7 @@ public sealed class YukiChatCompletion : IYukiChatCompletion {
 
             var finalText = ExtractMessageFromEnvelope(responseText);
             if (string.IsNullOrWhiteSpace(finalText)) {
-                _logger?.LogDebug("Итерация {Iter}: ответ без поля message: {Response}", iteration, responseText);
+                _logger?.LogWarning($"Итерация {iteration}: ответ без поля message: {responseText}");
                 if (missingMessageNudgeCount < _options.MaxNudges) {
                     workingHistory.Add(new ChatMessageContent(AuthorRole.User, "Твой ответ не содержит поля 'message'. Верни {\"message\": \"...\"} с ответом."));
                     missingMessageNudgeCount++;
@@ -123,7 +123,7 @@ public sealed class YukiChatCompletion : IYukiChatCompletion {
                 return Fail("Модель не сформировала корректный ответ.");
             }
 
-            _logger?.LogDebug("Задача выполнена за {Iter} итераций", iteration + 1);
+            _logger?.LogInformation($"Задача выполнена за {iteration + 1} итераций");
             return [new ChatMessageContent(AuthorRole.Assistant, finalText)];
         }
 
@@ -203,11 +203,11 @@ public sealed class YukiChatCompletion : IYukiChatCompletion {
             return string.Empty;
 
         var sb = new StringBuilder();
-        sb.Append("You have access to the following tools. Use them only when needed. ");
-        sb.Append("If a tool is needed, respond ONLY with a JSON object: ");
+        sb.Append("Тебе доступны следующие инструменты. Используй их только тогда, когда это необходимо. ");
+        sb.Append("Если требуется инструмент, ответь ТОЛЬКО JSON-объектом: ");
         sb.Append("{\"tool_call\": {\"name\": \"function_name\", \"arguments\": {...}}}. ");
-        sb.Append("If no tool is needed, respond ONLY with a JSON object: ");
-        sb.Append("{\"message\": \"your answer\"}.");
+        sb.Append("Если инструмент не требуется, ответь ТОЛЬКО JSON-объектом: ");
+        sb.Append("{\"message\": \"твой ответ\"}.");
 
         foreach (var func in functions) {
             sb.AppendLine($"- {func.Name}: {func.Description}");
@@ -289,27 +289,34 @@ public sealed class YukiChatCompletion : IYukiChatCompletion {
         }
     }
 
-    private static bool TryParseToolCall(string responseText, out FunctionCallContent? functionCall) {
+    private static bool TryParseToolCall(Kernel? kernel, string responseText, out FunctionCallContent? functionCall) {
         functionCall = null;
-        if (string.IsNullOrWhiteSpace(responseText)) return false;
+        if (string.IsNullOrWhiteSpace(responseText)) 
+            return false;
 
         try {
             using var document = JsonDocument.Parse(responseText);
             var root = document.RootElement;
 
-            if (root.ValueKind != JsonValueKind.Object ||
-                !root.TryGetProperty("tool_call", out var toolCallElement))
+            if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("tool_call", out var toolCallElement))
                 return false;
 
             if (!toolCallElement.TryGetProperty("name", out var nameElement))
                 return false;
 
             var functionName = nameElement.GetString();
-            if (string.IsNullOrEmpty(functionName)) return false;
+            if (string.IsNullOrEmpty(functionName)) 
+                return false;
+
+            string? pluginName = null;
+            if (kernel != null) {
+                var metadata = kernel.Plugins.GetFunctionsMetadata()
+                    .FirstOrDefault(f => f.Name == functionName);
+                pluginName = metadata?.PluginName;
+            }
 
             KernelArguments? arguments = null;
-            if (toolCallElement.TryGetProperty("arguments", out var argsElement) &&
-                argsElement.ValueKind == JsonValueKind.Object) {
+            if (toolCallElement.TryGetProperty("arguments", out var argsElement) && argsElement.ValueKind == JsonValueKind.Object) {
                 try {
                     var argsDict = JsonSerializer.Deserialize<Dictionary<string, object?>>(argsElement.GetRawText());
                     if (argsDict != null) {
@@ -325,6 +332,7 @@ public sealed class YukiChatCompletion : IYukiChatCompletion {
             }
 
             functionCall = new FunctionCallContent(
+                pluginName: pluginName,
                 functionName: functionName,
                 arguments: arguments);
             return true;

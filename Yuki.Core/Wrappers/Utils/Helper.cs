@@ -44,12 +44,7 @@ public static class Helper {
         return [.. list];
     }
 
-    private static long[] ParseInt64Array(JsonElement element) {
-        return [.. element.EnumerateArray().Select(v => v.GetInt64())];
-    }
+    private static long[] ParseInt64Array(JsonElement element) => [.. element.EnumerateArray().Select(v => v.GetInt64())];
 
-    public static TextToSpeechCore LoadTextToSpeech(string onnxDir) {
-        var cfgs = LoadCfgs(onnxDir);
-        return new TextToSpeechCore(cfgs, onnxDir);
-    }
+    public static TextToSpeechCore LoadTextToSpeech(Config cfgs, string onnxDir) => new(cfgs, onnxDir);
 }
