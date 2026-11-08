@@ -61,6 +61,7 @@ public class VoiceInteractionService(IWakeWordListener _wakeWordListener, IAudio
     private async Task ProcessAudioLoopAsync(ChannelReader<float[]> reader, CancellationToken ct) {
         var silenceDuration = TimeSpan.Zero;
         var hasHeardSpeech = false;
+        var timeSinceListeningStarted = TimeSpan.Zero;
 
         try {
             await foreach (var chunk in reader.ReadAllAsync(ct)) {
@@ -68,6 +69,7 @@ public class VoiceInteractionService(IWakeWordListener _wakeWordListener, IAudio
                 _recognizer.AcceptAudio(chunk);
 
                 var chunkDuration = TimeSpan.FromSeconds((double)chunk.Length / _settings.Value.SampleRate);
+                timeSinceListeningStarted += chunkDuration;
 
                 if (speechProbability > _settings.Value.VadThreshold) {
                     hasHeardSpeech = true;
@@ -77,6 +79,9 @@ public class VoiceInteractionService(IWakeWordListener _wakeWordListener, IAudio
                     silenceDuration += chunkDuration;
 
                 if (hasHeardSpeech && silenceDuration.TotalMilliseconds >= _settings.Value.EndOfSpeectSilenceMs)
+                    break;
+
+                if (!hasHeardSpeech && timeSinceListeningStarted >= TimeSpan.FromMilliseconds(_settings.Value.StartSilenceTimeoutMs))
                     break;
             }
         }
@@ -92,6 +97,11 @@ public class VoiceInteractionService(IWakeWordListener _wakeWordListener, IAudio
         _audioChannel = null;
 
         var transcript = _recognizer.GetFinalResult();
+
+        if (string.IsNullOrWhiteSpace(transcript)) {
+            SetState(VoiceInteractionState.Idle);
+            return;
+        }
 
         SetState(VoiceInteractionState.Processing);
 
