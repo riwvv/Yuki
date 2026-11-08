@@ -17,8 +17,6 @@ using ChatHistory = Microsoft.SemanticKernel.ChatCompletion.ChatHistory;
 namespace Yuki.Core.ServantAgent.Services;
 
 public class ServantAgentService : IServantAgentService {
-    private const int CONTEXT_SIZE = 8192;
-
     private readonly Kernel _kernel;
     private readonly LlamaWeightsProvider _weightsProvider;
     private readonly IChatCompletionService _chatService;
@@ -36,7 +34,7 @@ public class ServantAgentService : IServantAgentService {
 
     public event Action<string>? TaskCompleted;
 
-    public ServantAgentService(LlamaWeightsProvider weightsProvider, IOptions<YukiChatCompletionSettings> chatCompletionOptions, ILogger<ServantAgentService> logger, ILogger<YukiChatCompletion> chatCompletionLogger) {
+    public ServantAgentService(LlamaWeightsProvider weightsProvider, IOptions<ServantContextParamsSettings> contextSettings, IOptions<YukiChatCompletionSettings> chatCompletionOptions, ILogger<ServantAgentService> logger, ILogger<YukiChatCompletion> chatCompletionLogger) {
         _logger = logger;
         _taskLock = new(1, 1);
 
@@ -49,7 +47,7 @@ public class ServantAgentService : IServantAgentService {
         _weightsProvider = weightsProvider;
 
         _contextParams = new ModelParams(string.Empty) {
-            ContextSize = CONTEXT_SIZE
+            ContextSize = contextSettings.Value.ContextSize
         };
 
         _executor = new StatelessExecutor(_weightsProvider.Weights, _contextParams);

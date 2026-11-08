@@ -16,10 +16,6 @@ using Yuki.Core.Wrappers.Services;
 namespace Yuki.Core.HostAgent.Services;
 
 public class HostAgentService : IHostAgentService {
-    private const int CONTEXT_SIZE = 4096;
-
-    private const int MAX_HISTORY_BEFORE_TRIM = 12;
-
     private readonly ILlamaChatEngineFactory _factory;
     private readonly IServantAgentService _servantAgent;
     private readonly LlamaWeightsProvider _weightsProvider;
@@ -29,6 +25,7 @@ public class HostAgentService : IHostAgentService {
     private readonly SemaphoreSlim _generationLock;
     private readonly Lock _reloadLock;
     private readonly ILogger<HostAgentService> _logger;
+    private readonly IOptions<HostSettings> _hostSettings;
     private ILlamaChatEngine _engine;
     private int _currentGpuLayerCount;
 
@@ -43,6 +40,7 @@ public class HostAgentService : IHostAgentService {
 
     public HostAgentService(ILlamaChatEngineFactory factory, LlamaWeightsProvider weightsProvider, IServantAgentService servantAgent, IOptions<HostSettings> hostSettings, ILogger<HostAgentService> logger) {
         _logger = logger;
+        _hostSettings = hostSettings;
         _reloadLock = new();
         _generationLock = new(1, 1);
         _chatHistory = new();
@@ -61,7 +59,7 @@ public class HostAgentService : IHostAgentService {
         _engine = _factory.Create(new LlamaChatEngineOptions {
             Weights = _weightsProvider.Weights,
             ExistingHistory = _chatHistory,
-            ContextSize = CONTEXT_SIZE
+            ContextSize = _hostSettings.Value.ContextSize
         });
 
         _currentGpuLayerCount = _weightsProvider.GpuLayerCount;
@@ -104,7 +102,7 @@ public class HostAgentService : IHostAgentService {
         var newEngine = _factory.Create(new LlamaChatEngineOptions {
             Weights = _weightsProvider.Weights,
             ExistingHistory = _chatHistory,
-            ContextSize = CONTEXT_SIZE
+            ContextSize = _hostSettings.Value.ContextSize
         });
 
         lock (_reloadLock) {
@@ -136,7 +134,7 @@ public class HostAgentService : IHostAgentService {
     }
 
     private void TrimHistoryIfNeeded() {
-        if (_chatHistory.Messages.Count <= MAX_HISTORY_BEFORE_TRIM) 
+        if (_chatHistory.Messages.Count <= _hostSettings.Value.MaxHistoryBeforeTrim) 
             return;
 
         _logger.LogInformation("Host: контекст достиг {Count} сообщений — очищаю историю до System", _chatHistory.Messages.Count);

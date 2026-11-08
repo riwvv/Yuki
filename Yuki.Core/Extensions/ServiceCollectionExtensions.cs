@@ -30,6 +30,7 @@ public static class ServiceCollectionExtensions {
         services.Configure<AudioCaptureSettings>(configuration.GetSection("AudioCapture"));
         services.Configure<ResourceManagerSettings>(configuration.GetSection("ResourceManager"));
         services.Configure<YukiChatCompletionSettings>(configuration.GetSection("Servant:ChatCompletion"));
+        services.Configure<ServantContextParamsSettings>(configuration.GetSection("Servant:ContextParams"));
         services.Configure<LlamaChatEngineSettings>(configuration.GetSection("Host:ChatEngine"));
 
         services.AddHttpClient("Vosk", client => {
@@ -79,10 +80,11 @@ public static class ServiceCollectionExtensions {
         services.AddSingleton<IServantAgentService, ServantAgentService>();
         services.AddSingleton<LlamaWeightsProvider>(sp => {
             var hostSettings = sp.GetRequiredService<IOptions<HostSettings>>().Value;
+            var servantSettings = sp.GetRequiredService<IOptions<ServantContextParamsSettings>>().Value;
             var modelPath = Utils.GetLlmModelPath(hostSettings.ModelName);
             var gpuLayerResolver = sp.GetRequiredService<IGpuLayerResolver>();
             var logger = sp.GetRequiredService<ILogger<LlamaWeightsProvider>>();
-            var gpuLayers = gpuLayerResolver.ResolveGpuLayers(modelPath, 4096);
+            var gpuLayers = gpuLayerResolver.ResolveGpuLayers(modelPath, Convert.ToInt32(Math.Max(hostSettings.ContextSize, servantSettings.ContextSize)));
             logger.LogInformation($"Resource manager: выделяю {gpuLayers} слоёв на GPU для Host");
             return new LlamaWeightsProvider(modelPath, gpuLayers);
         });
