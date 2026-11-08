@@ -16,10 +16,6 @@ using Yuki.Core.Wrappers.Services;
 namespace Yuki.Core.HostAgent.Services;
 
 public class HostAgentService : IHostAgentService {
-    private const int CONTEXT_SIZE = 4096;
-
-    private const int MAX_HISTORY_BEFORE_TRIM = 12;
-
     private readonly ILlamaChatEngineFactory _factory;
     private readonly IServantAgentService _servantAgent;
     private readonly LlamaWeightsProvider _weightsProvider;
@@ -29,17 +25,22 @@ public class HostAgentService : IHostAgentService {
     private readonly SemaphoreSlim _generationLock;
     private readonly Lock _reloadLock;
     private readonly ILogger<HostAgentService> _logger;
+    private readonly IOptions<HostSettings> _hostSettings;
     private ILlamaChatEngine _engine;
     private int _currentGpuLayerCount;
 
     public event Action<string>? ResponseGenerated;
 
     public int CurrentGpuLayerCount {
-        get { lock (_reloadLock) return _currentGpuLayerCount; }
+        get { 
+            lock (_reloadLock) 
+                return _currentGpuLayerCount; 
+        }
     }
 
     public HostAgentService(ILlamaChatEngineFactory factory, LlamaWeightsProvider weightsProvider, IServantAgentService servantAgent, IOptions<HostSettings> hostSettings, ILogger<HostAgentService> logger) {
         _logger = logger;
+        _hostSettings = hostSettings;
         _reloadLock = new();
         _generationLock = new(1, 1);
         _chatHistory = new();
@@ -58,14 +59,17 @@ public class HostAgentService : IHostAgentService {
         _engine = _factory.Create(new LlamaChatEngineOptions {
             Weights = _weightsProvider.Weights,
             ExistingHistory = _chatHistory,
-            ContextSize = (uint)CONTEXT_SIZE
+            ContextSize = _hostSettings.Value.ContextSize
         });
 
         _currentGpuLayerCount = _weightsProvider.GpuLayerCount;
         _servantAgent.TaskCompleted += OnServantTaskCompleted;
     }
 
-    public IAsyncEnumerable<string> RespondToUserAsync(string userMessage, CancellationToken cancellationToken = default) => GenerateResponseAsync(userMessage, _userInteractionGrammar, true, cancellationToken);
+    public IAsyncEnumerable<string> RespondToUserAsync(string userMessage, CancellationToken cancellationToken = default) {
+        TrimHistoryIfNeeded();
+        return GenerateResponseAsync(userMessage, _userInteractionGrammar, true, cancellationToken);
+    }
 
     public IAsyncEnumerable<string> RespondToSystemEventAsync(string eventMessage, CancellationToken cancellationToken = default) => GenerateResponseAsync(eventMessage, _dialogOnlyGrammar, false, cancellationToken);
 
@@ -98,7 +102,7 @@ public class HostAgentService : IHostAgentService {
         var newEngine = _factory.Create(new LlamaChatEngineOptions {
             Weights = _weightsProvider.Weights,
             ExistingHistory = _chatHistory,
-            ContextSize = (uint)CONTEXT_SIZE
+            ContextSize = _hostSettings.Value.ContextSize
         });
 
         lock (_reloadLock) {
@@ -107,13 +111,9 @@ public class HostAgentService : IHostAgentService {
         }
     }
 
-    private async IAsyncEnumerable<string> GenerateResponseAsync(
-        string prompt, Grammar grammar, bool allowToolCall,
-        [EnumeratorCancellation] CancellationToken cancellationToken) {
+    private async IAsyncEnumerable<string> GenerateResponseAsync(string prompt, Grammar grammar, bool allowToolCall, [EnumeratorCancellation] CancellationToken cancellationToken) {
         await _generationLock.WaitAsync(cancellationToken);
         try {
-            TrimHistoryIfNeeded();
-
             ILlamaChatEngine engine;
             lock (_reloadLock) engine = _engine;
 
@@ -123,7 +123,7 @@ public class HostAgentService : IHostAgentService {
             await foreach (var token in ExtractAndStreamMessage(stream, fullJson, cancellationToken))
                 yield return token;
 
-            _logger.LogInformation($"Сырой JSON от Gemma: {fullJson}");
+            _logger.LogInformation($"Сырой JSON: {fullJson}");
 
             if (allowToolCall)
                 ProcessToolCall(fullJson.ToString());
@@ -134,7 +134,8 @@ public class HostAgentService : IHostAgentService {
     }
 
     private void TrimHistoryIfNeeded() {
-        if (_chatHistory.Messages.Count <= MAX_HISTORY_BEFORE_TRIM) return;
+        if (_chatHistory.Messages.Count <= _hostSettings.Value.MaxHistoryBeforeTrim) 
+            return;
 
         _logger.LogInformation("Host: контекст достиг {Count} сообщений — очищаю историю до System", _chatHistory.Messages.Count);
 
@@ -151,7 +152,8 @@ public class HostAgentService : IHostAgentService {
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
 
-            if (!root.TryGetProperty("tool_call", out var toolCall)) return;
+            if (!root.TryGetProperty("tool_call", out var toolCall)) 
+                return;
 
             if (!toolCall.TryGetProperty("args", out var args) ||
                 !args.TryGetProperty("task", out var taskElement)) {
@@ -166,9 +168,14 @@ public class HostAgentService : IHostAgentService {
             }
 
             _logger.LogInformation($"System: Host делегирует задачу Servant'у: {task}");
+
             _ = Task.Run(async () => {
-                try { await _servantAgent.ExecuteTaskAsync(task); }
-                catch (Exception ex) { _logger.LogError(ex, "Ошибка при выполнении задачи Servant'ом"); }
+                try { 
+                    await _servantAgent.ExecuteTaskAsync(task); 
+                }
+                catch (Exception ex) { 
+                    _logger.LogError(ex, "Ошибка при выполнении задачи Servant'ом"); 
+                }
             });
         }
         catch (JsonException ex) {

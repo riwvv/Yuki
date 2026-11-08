@@ -2,4 +2,5 @@
 
 public interface ITextToSpeechPlayer : IDisposable {
     void EnqueueText(string text);
+    bool IsSpeaking { get; }
 }

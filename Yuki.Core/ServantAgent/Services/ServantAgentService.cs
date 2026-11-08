@@ -1,11 +1,13 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.SemanticKernel.Connectors.OpenAI;
 using LLama;
 using LLama.Abstractions;
 using LLama.Common;
+using Yuki.Core.Configurations;
 using Yuki.Core.ServantAgent.Contracts;
 using Yuki.Core.ServantAgent.Plugins;
 using Yuki.Core.Wrappers.Services;
@@ -16,17 +18,23 @@ namespace Yuki.Core.ServantAgent.Services;
 
 public class ServantAgentService : IServantAgentService {
     private readonly Kernel _kernel;
+    private readonly LlamaWeightsProvider _weightsProvider;
     private readonly IChatCompletionService _chatService;
-    private readonly ILLamaExecutor _executor;
     private readonly OpenAIPromptExecutionSettings _settings;
     private readonly ILogger<ServantAgentService> _logger;
     private readonly string _systemPrompt;
     private readonly SemaphoreSlim _taskLock;
+    private readonly ModelParams _contextParams;
     private readonly TimeSpan _taskTimeout = TimeSpan.FromSeconds(60);
+
+    private ILLamaExecutor _executor;
+
+    // свободен ли
+    public bool IsIdle => _taskLock.CurrentCount == 1;
 
     public event Action<string>? TaskCompleted;
 
-    public ServantAgentService(LlamaWeightsProvider weightsProvider, ILogger<ServantAgentService> logger) {
+    public ServantAgentService(LlamaWeightsProvider weightsProvider, IOptions<ServantContextParamsSettings> contextSettings, IOptions<YukiChatCompletionSettings> chatCompletionOptions, ILogger<ServantAgentService> logger, ILogger<YukiChatCompletion> chatCompletionLogger) {
         _logger = logger;
         _taskLock = new(1, 1);
 
@@ -36,13 +44,15 @@ public class ServantAgentService : IServantAgentService {
             MaxTokens = 512
         };
 
-        var contextParams = new ModelParams(string.Empty) {
-            ContextSize = 6144
+        _weightsProvider = weightsProvider;
+
+        _contextParams = new ModelParams(string.Empty) {
+            ContextSize = contextSettings.Value.ContextSize
         };
 
-        _executor = new StatelessExecutor(weightsProvider.Weights, contextParams);
+        _executor = new StatelessExecutor(_weightsProvider.Weights, _contextParams);
 
-        var chatService = new YukiChatCompletion(_executor, new QwenChatMLTransform());
+        var chatService = new YukiChatCompletion(() => _executor, new QwenChatMLTransform(), chatCompletionOptions.Value, chatCompletionLogger);
 
         var builder = Kernel.CreateBuilder();
         builder.Services.AddSingleton<IChatCompletionService>(chatService);
@@ -57,6 +67,8 @@ public class ServantAgentService : IServantAgentService {
 
         _kernel = builder.Build();
         _chatService = _kernel.GetRequiredService<IChatCompletionService>();
+
+        _weightsProvider.WeightsReloaded += OnWeightsReloaded;
     }
 
     public async Task ExecuteTaskAsync(string taskDescription, CancellationToken ct = default) {
@@ -95,7 +107,18 @@ public class ServantAgentService : IServantAgentService {
         }
     }
 
-    public void Dispose() {
+    // захват лока
+    public async Task<bool> TryAcquireReloadLockAsync(TimeSpan timeout, CancellationToken ct = default) => await _taskLock.WaitAsync(timeout, ct);
 
+    // освобождаем лок
+    public void ReleaseReloadLock() => _taskLock.Release();
+
+    private void OnWeightsReloaded(LLamaWeights newWeights) {
+        _logger.LogInformation("Servant: веса перезагружены — пересоздаю executor");
+        _executor = new StatelessExecutor(newWeights, _contextParams);
+    }
+
+    public void Dispose() {
+        _weightsProvider.WeightsReloaded -= OnWeightsReloaded;
     }
 }
