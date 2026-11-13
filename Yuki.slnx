@@ -1,5 +1,7 @@
 <Solution>
   <Project Path="Yuki.Core.Tests/Yuki.Core.Tests.csproj" Id="c39590db-08bf-42ad-9f01-dd73bdd8c1b6" />
   <Project Path="Yuki.Core/Yuki.Core.csproj" Id="72d27ca9-71ef-4444-9042-5476e0290c16" />
+  <Project Path="Yuki.Mcp.TestServer/Yuki.Mcp.TestServer.csproj" Id="890ad313-b83d-4489-9f9e-0f0c1c486f06" />
+  <Project Path="Yuki.McpClientTest/Yuki.McpClientTest.csproj" Id="485fec9b-977f-4e86-842e-a4c8db09223d" />
   <Project Path="Yuki/Yuki.csproj" />
 </Solution>
