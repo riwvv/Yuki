@@ -17,5 +17,11 @@ await using var client = await McpClient.CreateAsync(transport);
 var tools = await client.ListToolsAsync();
 Console.WriteLine($"Доступно инструментов: {tools.Count}");
 
-var result = await client.CallToolAsync("get_random_number", new Dictionary<string, object?> { ["min"] = 1, ["max"] = 100 });
-Console.WriteLine($"Результат: {result.Content.OfType<TextContentBlock>().FirstOrDefault()?.Text}");
+foreach (var tool in tools) {
+    Console.WriteLine(tool.Name);
+}
+
+var result1 = await client.CallToolAsync("get_random_number", new Dictionary<string, object?> { ["min"] = 1, ["max"] = 100 });
+var result2 = await client.CallToolAsync("get_date_time");
+Console.WriteLine($"Результат 1: {result1.Content.OfType<TextContentBlock>().FirstOrDefault()?.Text}");
+Console.WriteLine($"Результат 2: {result2.Content.OfType<TextContentBlock>().FirstOrDefault()?.Text}");
