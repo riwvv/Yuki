@@ -1,31 +1,17 @@
-﻿using ModelContextProtocol.Client;
+﻿using Microsoft.Extensions.Logging;
+using ModelContextProtocol.Client;
 using Yuki.Core.MCP.Contracts;
 
 namespace Yuki.Core.MCP.Services;
 
-public sealed class McpManager : IMcpManager {
+public sealed class McpManager(ILogger<IMcpManager> _logger) : IMcpManager {
     private readonly Dictionary<string, McpClient> _clients = [];
     private readonly List<McpClientTool> _cachedTools = [];
 
     public async Task InitializeAsync() {
-        // инициализация одного сервера
-        var browserTransport = new StdioClientTransport(new StdioClientTransportOptions {
-#if DEBUG
-            Command = "dotnet",
-            Arguments = ["run", "--project", Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, @"..\..\..\..\Yuki.Mcp.Browser\Yuki.Mcp.Browser.csproj"))],
-#else
-            Command = Path.Combine(AppContext.BaseDirectory, "Yuki.Mcp.Browser.exe"),
-            Arguments = [],
-#endif
-            StandardErrorLines = line => Console.Error.WriteLine($"[browser-server] {line}")
-        });
+        await ConnectServerAsync("browser", "Yuki.Mcp.Browser");
+        await ConnectServerAsync("media-player", "Yuki.Mcp.MediaPlayer");
 
-        var browserClient = await McpClient.CreateAsync(browserTransport);
-        _clients.Add("browser", browserClient);
-        // так же все остальные
-
-
-        // кешируем
         foreach (var client in _clients.Values) {
             var tools = await client.ListToolsAsync();
             _cachedTools.AddRange(tools);
@@ -35,6 +21,30 @@ public sealed class McpManager : IMcpManager {
     public IEnumerable<McpClientTool> GetAllTools() => _cachedTools;
 
     public McpClient GetClient(string name) => _clients[name];
+
+    private async Task ConnectServerAsync(string clientName, string projectName) {
+        _logger.LogInformation($"MCP: Запуск MCP-сервера: {clientName}.");
+
+        var transport = new StdioClientTransport(new StdioClientTransportOptions {
+#if DEBUG
+            Command = "dotnet",
+            Arguments = ["run", "--project", Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, @$"..\..\..\..\{projectName}\{projectName}.csproj"))],
+#else
+            Command = Path.Combine(AppContext.BaseDirectory, $"{projectName}.exe"),
+            Arguments = [],
+#endif
+            StandardErrorLines = line => Console.Error.WriteLine($"[{clientName}-server] {line}")
+        });
+
+        try {
+            var client = await McpClient.CreateAsync(transport);
+            _clients[clientName] = client;
+            _logger.LogInformation($"MCP: MCP-сервер {clientName} успешно запущен.");
+        }
+        catch (Exception ex) {
+            _logger.LogError(ex, $"MCP: Не удалось запустить MCP-сервер {clientName}.");
+        }
+    }
 
     public async ValueTask DisposeAsync() {
         foreach (var client in _clients.Values) {

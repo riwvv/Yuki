@@ -1,22 +1,22 @@
-﻿using Windows.Media.Control;
-using Microsoft.SemanticKernel;
+﻿using ModelContextProtocol.Server;
 using System.ComponentModel;
 using System.Text.Json;
+using Windows.Media.Control;
 
-namespace Yuki.Core.ServantAgent.Plugins;
+namespace Yuki.Mcp.MediaPlayer.Tools;
 
-public class MediaPlayerPlugin {
+internal class MediaPlayerTools {
     private static GlobalSystemMediaTransportControlsSessionManager? _sessionManager;
     private static GlobalSystemMediaTransportControlsSession? _currentSession;
 
-    [KernelFunction]
+    [McpServerTool]
     [Description("Получает информацию о текущем треке: исполнитель и название")]
     public static async Task<string> GetCurrentTrackInfo() {
         try {
             var session = await GetCurrentSession();
             if (session == null) {
                 return JsonSerializer.Serialize(new {
-                    status = "WARNING",
+                    status = "warning",
                     cause = "no_player",
                     description = "Ни один плеер сейчас не воспроизводит музыку"
                 });
@@ -25,7 +25,7 @@ public class MediaPlayerPlugin {
             var mediaProperties = await session.TryGetMediaPropertiesAsync();
             if (mediaProperties == null) {
                 return JsonSerializer.Serialize(new {
-                    status = "ERROR",
+                    status = "error",
                     cause = "no_media_info",
                     description = "Не удалось получить информацию о треке"
                 });
@@ -35,7 +35,7 @@ public class MediaPlayerPlugin {
             string artist = mediaProperties.Artist ?? "Неизвестный исполнитель";
 
             return JsonSerializer.Serialize(new {
-                status = "DONE",
+                status = "done",
                 message = $"{artist} - {title}",
                 titleMusic = title,
                 artistMusic = artist,
@@ -44,21 +44,21 @@ public class MediaPlayerPlugin {
         }
         catch (Exception ex) {
             return JsonSerializer.Serialize(new {
-                status = "ERROR",
+                status = "error",
                 cause = "exception",
                 description = $"Ошибка получения информации: {ex.Message}"
             });
         }
     }
 
-    [KernelFunction]
+    [McpServerTool]
     [Description("Ставит музыку на паузу или возобновляет воспроизведение")]
     public static async Task<string> PlayPause() {
         try {
             var session = await GetCurrentSession();
             if (session == null) {
                 return JsonSerializer.Serialize(new {
-                    status = "ERROR",
+                    status = "error",
                     cause = "no_player",
                     description = "Нет активного плеера"
                 });
@@ -70,7 +70,7 @@ public class MediaPlayerPlugin {
             if (currentStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing) {
                 await session.TryPauseAsync();
                 return JsonSerializer.Serialize(new {
-                    status = "DONE",
+                    status = "done",
                     message = "Воспроизведение поставлено на паузу",
                     action = "pause",
                     currentStatus = "paused"
@@ -79,7 +79,7 @@ public class MediaPlayerPlugin {
             else {
                 await session.TryPlayAsync();
                 return JsonSerializer.Serialize(new {
-                    status = "DONE",
+                    status = "done",
                     message = "Воспроизведение возобновлено",
                     action = "play",
                     currentStatus = "playing"
@@ -88,51 +88,55 @@ public class MediaPlayerPlugin {
         }
         catch (Exception ex) {
             return JsonSerializer.Serialize(new {
-                status = "ERROR",
+                status = "error",
                 cause = "exception",
                 description = $"Ошибка: {ex.Message}"
             });
         }
     }
 
-    [KernelFunction]
+    [McpServerTool]
     [Description("Переключает на следующий трек")]
     public static async Task<string> NextTrack() {
         try {
             var session = await GetCurrentSession();
             if (session == null) {
                 return JsonSerializer.Serialize(new {
-                    status = "ERROR",
+                    status = "error",
                     cause = "no_player",
                     description = "Нет активного плеера"
                 });
             }
 
-            await session.TrySkipNextAsync();
-
-            return JsonSerializer.Serialize(new {
-                status = "DONE",
-                message = "Следующий трек",
-                action = "next"
-            });
+            return await session.TrySkipNextAsync()
+                ? JsonSerializer.Serialize(new {
+                    status = "done",
+                    message = "Следующий трек",
+                    action = "next"
+                })
+                : JsonSerializer.Serialize(new {
+                    status = "error",
+                    cause = "unknown",
+                    description = "Попытка переключить трек не удалась по неизвестной причине"
+                });
         }
         catch (Exception ex) {
             return JsonSerializer.Serialize(new {
-                status = "ERROR",
+                status = "error",
                 cause = "exception",
                 description = $"Ошибка: {ex.Message}"
             });
         }
     }
 
-    [KernelFunction]
+    [McpServerTool]
     [Description("Переключает на предыдущий трек")]
     public static async Task<string> PreviousTrack() {
         try {
             var session = await GetCurrentSession();
             if (session == null) {
                 return JsonSerializer.Serialize(new {
-                    status = "ERROR",
+                    status = "error",
                     cause = "no_player",
                     description = "Нет активного плеера"
                 });
@@ -141,28 +145,28 @@ public class MediaPlayerPlugin {
             await session.TrySkipPreviousAsync();
 
             return JsonSerializer.Serialize(new {
-                status = "DONE",
+                status = "done",
                 message = "Предыдущий трек",
                 action = "previous"
             });
         }
         catch (Exception ex) {
             return JsonSerializer.Serialize(new {
-                status = "ERROR",
+                status = "error",
                 cause = "exception",
                 description = $"Ошибка: {ex.Message}"
             });
         }
     }
 
-    [KernelFunction]
+    [McpServerTool]
     [Description("Останавливает воспроизведение")]
     public static async Task<string> Stop() {
         try {
             var session = await GetCurrentSession();
             if (session == null) {
                 return JsonSerializer.Serialize(new {
-                    status = "ERROR",
+                    status = "error",
                     cause = "no_player",
                     description = "Нет активного плеера"
                 });
@@ -171,14 +175,14 @@ public class MediaPlayerPlugin {
             await session.TryStopAsync();
 
             return JsonSerializer.Serialize(new {
-                status = "DONE",
+                status = "done",
                 message = "Воспроизведение остановлено",
                 action = "stop"
             });
         }
         catch (Exception ex) {
             return JsonSerializer.Serialize(new {
-                status = "ERROR",
+                status = "error",
                 cause = "exception",
                 description = $"Ошибка: {ex.Message}"
             });
