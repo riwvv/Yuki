@@ -6,6 +6,8 @@ using Microsoft.Extensions.Options;
 using Yuki.Core.Configurations;
 using Yuki.Core.HostAgent.Contracts;
 using Yuki.Core.HostAgent.Services;
+using Yuki.Core.MCP.Contracts;
+using Yuki.Core.MCP.Services;
 using Yuki.Core.ResourceManagement.Contracts;
 using Yuki.Core.ResourceManagement.Services;
 using Yuki.Core.ServantAgent.Contracts;
@@ -84,9 +86,11 @@ public static class ServiceCollectionExtensions {
             logger.LogInformation($"Resource manager: выделяю {gpuLayers} слоёв на GPU для Host");
             return new LlamaWeightsProvider(modelPath, gpuLayers);
         });
+        services.AddSingleton<IMcpManager, McpManager>();
 
         services.AddHostedService<ResourceMonitorBackgroundService>();
         services.AddHostedService<VoiceInteractionHostedService>();
+        services.AddHostedService<McpHostedService>();
 
         return services;
     }
