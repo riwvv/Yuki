@@ -1,14 +1,12 @@
-﻿using Microsoft.SemanticKernel;
-using Microsoft.VisualBasic.FileIO;
-using System.Text.RegularExpressions;
+﻿using ModelContextProtocol.Server;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Text.Json;
-using System.IO;
+using System.Text.RegularExpressions;
 
-namespace Yuki.Core.ServantAgent.Plugins;
+namespace Yuki.Mcp.FileSystem.Tools;
 
-public class FileSystemPlugin {
+internal class FileSystemTools {
     private readonly List<string> _folderNames = ["downloads", "documents", "pictures", "videos", "music", "desktop"];
     private readonly char[] invalidCharsForName = Path.GetInvalidFileNameChars();
     private readonly Dictionary<string, List<string>> _fileTypes = new() {
@@ -24,9 +22,9 @@ public class FileSystemPlugin {
         { "таблица", [".xlsx", ".ods", ".csv"] }
     };
 
-    [KernelFunction]
+    [McpServerTool]
     [Description("Получает данные о папке")]
-    public async Task<string> GetInfoFolder([Description("Название одной из папок: downloads, documents, pictures, videos, music, desktop")] string folderName) {
+    public string GetInfoFolder([Description("Название одной из папок: downloads, documents, pictures, videos, music, desktop")] string folderName) {
         if (!SpecialFolderValidation(folderName)) {
             var error = new {
                 status = "ERROR",
@@ -85,9 +83,9 @@ public class FileSystemPlugin {
         }
     }
 
-    [KernelFunction]
+    [McpServerTool]
     [Description("Открывает файл в указаной специальной папке")]
-    public async Task<string> OpenFileInFolder([Description("Название одной из папок: downloads, documents, pictures, videos, music, desktop")] string folderName, [Description("Название файла")] string fileName, [Description("Тип файла, например: текстовик, презентация, фото, видео и т.д. (если указан, но не обязателен, иначе оставить как null)")] string? fileType = null) {
+    public string OpenFileInFolder([Description("Название одной из папок: downloads, documents, pictures, videos, music, desktop")] string folderName, [Description("Название файла")] string fileName, [Description("Тип файла, например: текстовик, презентация, фото, видео и т.д. (если указан, но не обязателен, иначе оставить как null)")] string? fileType = null) {
         if (!SpecialFolderValidation(folderName)) {
             var error = new {
                 status = "ERROR",
@@ -144,12 +142,12 @@ public class FileSystemPlugin {
         }
     }
 
-    [KernelFunction]
+    [McpServerTool]
     [Description("Перемещает файл из одной папки в другую (в рамках специальных папок), например: перемести текстовик тест из загрузок на рабочий стол")]
-    public async Task<string> MoveFileFromFolderToFolder(
-        [Description("Название начальной папки, одной из: downloads, documents, pictures, videos, music, desktop")] string startFolder, 
-        [Description("Название конечной папки, одной из: downloads, documents, pictures, videos, music, desktop")] string finishFolder, 
-        [Description("Название файла")] string fileName, 
+    public string MoveFileFromFolderToFolder(
+        [Description("Название начальной папки, одной из: downloads, documents, pictures, videos, music, desktop")] string startFolder,
+        [Description("Название конечной папки, одной из: downloads, documents, pictures, videos, music, desktop")] string finishFolder,
+        [Description("Название файла")] string fileName,
         [Description("Тип файла, например: текстовик, презентация, фото, видео и т.д. (если указан, но не обязателен, иначе оставить как null)")] string? fileType = null) {
         if (!SpecialFolderValidation(startFolder)) {
             var error = new {
@@ -229,9 +227,9 @@ public class FileSystemPlugin {
         }
     }
 
-    [KernelFunction]
+    [McpServerTool]
     [Description("Создание файла в специальной папке с указанным типом (если не указан, по умолчанию текстовик)")]
-    public async Task<string> CreateNewFileInSpecialFolder([Description("Название одной из специальных папок: downloads, documents, pictures, videos, music, desktop")] string folderName,
+    public string CreateNewFileInSpecialFolder([Description("Название одной из специальных папок: downloads, documents, pictures, videos, music, desktop")] string folderName,
         [Description("Название файла (без расширения)")] string fileName,
         [Description("Тип файла, например: текстовик, презентация, фото, видео и т.д.")] string? fileType = null) {
         if (!SpecialFolderValidation(folderName)) {
@@ -331,9 +329,9 @@ public class FileSystemPlugin {
         }
     }
 
-    [KernelFunction]
+    [McpServerTool]
     [Description("Переименование существующего файла")]
-    public async Task<string> RenameExistsFile(
+    public string RenameExistsFile(
         [Description("Название одной из специальных папок: downloads, documents, pictures, videos, music, desktop")] string folderName,
         [Description("Старое название файла (без расширения)")] string oldFileName,
         [Description("Новое название файла (без расширения)")] string newFileName,
@@ -449,7 +447,7 @@ public class FileSystemPlugin {
     }
 
     private string SearchForRelevantFile(string path, string targetFileName, string? targetFileType = null) {
-        List<string> files = [..Directory.GetFiles(path)];
+        List<string> files = [.. Directory.GetFiles(path)];
 
         List<string>? targetFileTypes = GetRecognizedFileType(targetFileType);
         var escapedName = Regex.Escape(FormattingFileName(targetFileName));
