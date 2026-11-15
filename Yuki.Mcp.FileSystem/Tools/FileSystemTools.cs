@@ -1,12 +1,14 @@
-﻿using ModelContextProtocol.Server;
+﻿using ModelContextProtocol;
+using ModelContextProtocol.Server;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Yuki.Mcp.FileSystem.Resources;
 
 namespace Yuki.Mcp.FileSystem.Tools;
 
-internal class FileSystemTools {
+internal class FileSystemTools(FileSystemResources _resources) {
     private readonly List<string> _folderNames = ["downloads", "documents", "pictures", "videos", "music", "desktop"];
     private readonly char[] invalidCharsForName = Path.GetInvalidFileNameChars();
     private readonly Dictionary<string, List<string>> _fileTypes = new() {
@@ -148,7 +150,7 @@ internal class FileSystemTools {
         [Description("Название начальной папки, одной из: downloads, documents, pictures, videos, music, desktop")] string startFolder,
         [Description("Название конечной папки, одной из: downloads, documents, pictures, videos, music, desktop")] string finishFolder,
         [Description("Название файла")] string fileName,
-        [Description("Тип файла, например: текстовик, презентация, фото, видео и т.д. (если указан, но не обязателен, иначе оставить как null)")] string? fileType = null) {
+        [Description("Тип файла, например: текстовик, презентация, фото, видео и т.д. (если указан, но не обязателен, иначе оставить null)")] string? fileType = null) {
         if (!SpecialFolderValidation(startFolder)) {
             var error = new {
                 status = "ERROR",
@@ -410,6 +412,37 @@ internal class FileSystemTools {
                 description = $"Произошла непредвиденная ошибка при создании файла: {ex.Message}"
             };
             return JsonSerializer.Serialize(error);
+        }
+    }
+
+    [McpServerTool]
+    [Description("Считывает и возвращает текстовое содержимое файла из специальной папки")]
+    public string ReadFileContent(
+        [Description("Название одной из папок: downloads, documents, pictures, videos, music, desktop")] string folderName,
+        [Description("Название файла")] string fileName) {
+        try {
+            string content = _resources.ReadTextFile(folderName, fileName);
+
+            return JsonSerializer.Serialize(new {
+                status = "done",
+                message = $"Файл {fileName} успешно прочитан",
+                content = content,
+                folder = folderName
+            });
+        }
+        catch (McpException ex) {
+            return JsonSerializer.Serialize(new {
+                status = "error",
+                cause = "ReadError",
+                description = ex.Message
+            });
+        }
+        catch (Exception ex) {
+            return JsonSerializer.Serialize(new {
+                status = "error",
+                cause = "Excaption",
+                description = ex.Message
+            });
         }
     }
 
