@@ -11,7 +11,7 @@ public class SystemCommandPlugin {
     public static async Task<string> ExecuteCMD([Description("CMD команда")] string command) {
         if (string.IsNullOrWhiteSpace(command)) {
             return JsonSerializer.Serialize(new {
-                status = "ERROR",
+                status = "error",
                 cause = "empty_command",
                 description = "Команда не может быть пустой"
             });
@@ -31,7 +31,7 @@ public class SystemCommandPlugin {
             using var process = Process.Start(psi);
             if (process == null) {
                 return JsonSerializer.Serialize(new {
-                    status = "ERROR",
+                    status = "error",
                     cause = "process_failed",
                     description = "Не удалось выполнить команду"
                 });
@@ -43,7 +43,7 @@ public class SystemCommandPlugin {
 
             if (!string.IsNullOrEmpty(error)) {
                 return JsonSerializer.Serialize(new {
-                    status = "ERROR",
+                    status = "error",
                     cause = "command_error",
                     description = error.Trim()
                 });
@@ -52,7 +52,7 @@ public class SystemCommandPlugin {
             var result = string.IsNullOrEmpty(output) ? "Команда выполнена" : output.Trim();
 
             return JsonSerializer.Serialize(new {
-                status = "DONE",
+                status = "done",
                 message = result,
                 output = result,
                 originalCommand = command,
@@ -61,7 +61,7 @@ public class SystemCommandPlugin {
         }
         catch (Exception ex) {
             return JsonSerializer.Serialize(new {
-                status = "ERROR",
+                status = "error",
                 cause = "exception",
                 description = $"Ошибка выполнения: {ex.Message}"
             });
@@ -73,7 +73,7 @@ public class SystemCommandPlugin {
     public static async Task<string> ExecutePowerShell([Description("PowerShell команда")] string command) {
         if (string.IsNullOrWhiteSpace(command)) {
             return JsonSerializer.Serialize(new {
-                status = "ERROR",
+                status = "error",
                 cause = "empty_command",
                 description = "Команда не может быть пустой"
             });
@@ -93,7 +93,7 @@ public class SystemCommandPlugin {
             using var process = Process.Start(psi);
             if (process == null) {
                 return JsonSerializer.Serialize(new {
-                    status = "ERROR",
+                    status = "error",
                     cause = "process_failed",
                     description = "Не удалось выполнить команду"
                 });
@@ -108,7 +108,7 @@ public class SystemCommandPlugin {
 
             if (!string.IsNullOrEmpty(error)) {
                 return JsonSerializer.Serialize(new {
-                    status = "ERROR",
+                    status = "error",
                     cause = "command_error",
                     description = error.Trim()
                 });
@@ -117,7 +117,7 @@ public class SystemCommandPlugin {
             var result = string.IsNullOrEmpty(output) ? "Команда выполнена" : output.Trim();
 
             return JsonSerializer.Serialize(new {
-                status = "DONE",
+                status = "done",
                 message = result,
                 output = result,
                 originalCommand = command,
@@ -126,7 +126,7 @@ public class SystemCommandPlugin {
         }
         catch (Exception ex) {
             return JsonSerializer.Serialize(new {
-                status = "ERROR",
+                status = "error",
                 cause = "exception",
                 description = $"Ошибка выполнения: {ex.Message}"
             });
@@ -139,14 +139,14 @@ public class SystemCommandPlugin {
         try {
             Process.Start("rundll32.exe", "user32.dll,LockWorkStation");
             return JsonSerializer.Serialize(new {
-                status = "DONE",
+                status = "done",
                 message = "Экран заблокирован",
                 action = "lock_screen"
             });
         }
         catch (Exception ex) {
             return JsonSerializer.Serialize(new {
-                status = "ERROR",
+                status = "error",
                 cause = "lock_failed",
                 description = $"Ошибка блокировки: {ex.Message}"
             });
@@ -165,14 +165,14 @@ public class SystemCommandPlugin {
                 WindowStyle = ProcessWindowStyle.Hidden
             });
             return JsonSerializer.Serialize(new {
-                status = "DONE",
+                status = "done",
                 message = "Все окна свёрнуты",
                 action = "minimize_all"
             });
         }
         catch (Exception ex) {
             return JsonSerializer.Serialize(new {
-                status = "ERROR",
+                status = "error",
                 cause = "minimize_failed",
                 description = $"Ошибка: {ex.Message}"
             });
@@ -192,7 +192,7 @@ public class SystemCommandPlugin {
         }
         catch (Exception ex) {
             return JsonSerializer.Serialize(new {
-                status = "ERROR",
+                status = "error",
                 cause = "open_failed",
                 description = $"Ошибка: {ex.Message}"
             });
@@ -203,17 +203,17 @@ public class SystemCommandPlugin {
     [Description("Выключает компьютер. Вызови когда пользователь говорит: выключи компьютер, shutdown")]
     public static string Shutdown() {
         try {
-            Process.Start("shutdown", "/s /t 5 /c \"Джарвис выключает компьютер\"");
+            Process.Start("shutdown", "/s /t 15 /c \"Юки выключает компьютер\"");
             return JsonSerializer.Serialize(new {
-                status = "DONE",
-                message = "Выключаю компьютер через 5 секунд",
+                status = "done",
+                message = "Выключаю компьютер через 15 секунд",
                 action = "shutdown",
-                delay = 5
+                delay = 15
             });
         }
         catch (Exception ex) {
             return JsonSerializer.Serialize(new {
-                status = "ERROR",
+                status = "error",
                 cause = "shutdown_failed",
                 description = $"Ошибка: {ex.Message}"
             });
@@ -224,17 +224,17 @@ public class SystemCommandPlugin {
     [Description("Перезагружает компьютер. Вызови когда пользователь говорит: перезагрузи, restart, reboot")]
     public static string Restart() {
         try {
-            Process.Start("shutdown", "/r /t 5 /c \"Джарвис перезагружает компьютер\"");
+            Process.Start("shutdown", "/r /t 15 /c \"Юки перезагружает компьютер\"");
             return JsonSerializer.Serialize(new {
-                status = "DONE",
-                message = "Перезагружаю компьютер через 5 секунд",
+                status = "done",
+                message = "Перезагружаю компьютер через 15 секунд",
                 action = "restart",
-                delay = 5
+                delay = 15
             });
         }
         catch (Exception ex) {
             return JsonSerializer.Serialize(new {
-                status = "ERROR",
+                status = "error",
                 cause = "restart_failed",
                 description = $"Ошибка: {ex.Message}"
             });
@@ -247,14 +247,14 @@ public class SystemCommandPlugin {
         try {
             Process.Start("shutdown", "/a");
             return JsonSerializer.Serialize(new {
-                status = "DONE",
+                status = "done",
                 message = "Выключение отменено",
                 action = "cancel_shutdown"
             });
         }
         catch (Exception ex) {
             return JsonSerializer.Serialize(new {
-                status = "ERROR",
+                status = "error",
                 cause = "cancel_failed",
                 description = $"Ошибка: {ex.Message}"
             });
