@@ -1,12 +1,12 @@
-﻿using Microsoft.SemanticKernel;
+﻿using ModelContextProtocol.Server;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Text.Json;
 
-namespace Yuki.Core.ServantAgent.Plugins;
+namespace Yuki.Mcp.SystemCommand.Tools;
 
-public class SystemCommandPlugin {
-    [KernelFunction]
+internal class SystemCommandTools {
+    [McpServerTool]
     [Description("Выполняет CMD команду. Только для команд которые не закрыты другими функциями: ipconfig, ping, tasklist")]
     public static async Task<string> ExecuteCMD([Description("CMD команда")] string command) {
         if (string.IsNullOrWhiteSpace(command)) {
@@ -68,7 +68,7 @@ public class SystemCommandPlugin {
         }
     }
 
-    [KernelFunction]
+    [McpServerTool]
     [Description("Выполняет PowerShell команду. Используй для: Clear-RecycleBin, Get-Date, Get-Process")]
     public static async Task<string> ExecutePowerShell([Description("PowerShell команда")] string command) {
         if (string.IsNullOrWhiteSpace(command)) {
@@ -133,7 +133,7 @@ public class SystemCommandPlugin {
         }
     }
 
-    [KernelFunction]
+    [McpServerTool]
     [Description("Блокирует компьютер. Вызови эту функцию когда пользователь говорит: заблокируй экран, блокировка, lock screen")]
     public static string LockScreen() {
         try {
@@ -153,7 +153,7 @@ public class SystemCommandPlugin {
         }
     }
 
-    [KernelFunction]
+    [McpServerTool]
     [Description("Сворачивает все окна. Вызови когда пользователь говорит: сверни окна, покажи рабочий стол, minimize all")]
     public static string MinimizeAllWindows() {
         try {
@@ -179,7 +179,7 @@ public class SystemCommandPlugin {
         }
     }
 
-    [KernelFunction]
+    [McpServerTool]
     [Description("Открывает диспетчер задач. Вызови когда пользователь говорит: открой диспетчер задач, task manager")]
     public static string OpenTaskManager() {
         try {
@@ -199,7 +199,7 @@ public class SystemCommandPlugin {
         }
     }
 
-    [KernelFunction]
+    [McpServerTool]
     [Description("Выключает компьютер. Вызови когда пользователь говорит: выключи компьютер, shutdown")]
     public static string Shutdown() {
         try {
@@ -220,7 +220,7 @@ public class SystemCommandPlugin {
         }
     }
 
-    [KernelFunction]
+    [McpServerTool]
     [Description("Перезагружает компьютер. Вызови когда пользователь говорит: перезагрузи, restart, reboot")]
     public static string Restart() {
         try {
@@ -241,7 +241,7 @@ public class SystemCommandPlugin {
         }
     }
 
-    [KernelFunction]
+    [McpServerTool]
     [Description("Отменяет выключение. Вызови когда пользователь говорит: отмени выключение, cancel shutdown")]
     public static string CancelShutdown() {
         try {
@@ -259,5 +259,19 @@ public class SystemCommandPlugin {
                 description = $"Ошибка: {ex.Message}"
             });
         }
+    }
+
+    [McpServerTool]
+    [Description("Возвращает текущее системное время и дату.")]
+    public string GetCurrentTime() {
+        var now = DateTime.Now;
+        return JsonSerializer.Serialize(new {
+            status = "DONE",
+            message = now.ToString("HH:mm"),
+            data = new {
+                fullDate = now.ToString("dd.MM.yyyy"),
+                time = now.ToString("HH:mm")
+            }
+        });
     }
 }

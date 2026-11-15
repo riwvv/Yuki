@@ -11,6 +11,7 @@ public sealed class McpManager(ILogger<IMcpManager> _logger) : IMcpManager {
     public async Task InitializeAsync() {
         await ConnectServerAsync("browser", "Yuki.Mcp.Browser");
         await ConnectServerAsync("media-player", "Yuki.Mcp.MediaPlayer");
+        await ConnectServerAsync("system-command", "Yuki.Mcp.SystemCommand");
 
         foreach (var client in _clients.Values) {
             var tools = await client.ListToolsAsync();
