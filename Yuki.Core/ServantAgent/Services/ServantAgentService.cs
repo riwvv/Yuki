@@ -12,6 +12,7 @@ using Yuki.Core.Wrappers.Services;
 using Yuki.Core.Wrappers.Utils;
 using Yuki.Core.MCP.Contracts;
 using ChatHistory = Microsoft.SemanticKernel.ChatCompletion.ChatHistory;
+using Yuki.Core.ServantAgent.Plugins;
 
 namespace Yuki.Core.ServantAgent.Services;
 
@@ -119,6 +120,7 @@ public sealed class ServantAgentService : IServantAgentService {
             builder.Services.AddSingleton<IChatCompletionService>(_yukiChatCompletion);
 
             builder.Plugins.AddFromFunctions("McpTools", tools.Select(x => x.AsKernelFunction()));
+            builder.Plugins.AddFromType<MiniGamePlugin>();
 
             _kernel = builder.Build();
             _chatService = _kernel.GetRequiredService<IChatCompletionService>();
