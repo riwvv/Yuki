@@ -1,9 +1,8 @@
-﻿using ModelContextProtocol.Protocol;
-using ModelContextProtocol.Server;
-using NAudio.CoreAudioApi;
+﻿using Windows.Media.Control;
 using System.ComponentModel;
 using System.Text.Json;
-using Windows.Media.Control;
+using ModelContextProtocol.Server;
+using NAudio.CoreAudioApi;
 
 namespace Yuki.Mcp.MediaPlayer.Tools;
 
@@ -193,9 +192,9 @@ internal class MediaPlayerTools {
 
     [McpServerTool]
     [Description("Изменение уровня громкости системы")]
-    public static string ChangeVolume([Description("Значение от 0.0 до 1.0. Например: 'громкость 50%' значит 0.5f")] float volume) {
+    public static string ChangeVolume([Description("Значение от 1 до 100.")] int volume) {
         try {
-            var clampedVolume = Math.Clamp(volume, 0.0f, 1.0f);
+            var clampedVolume = Math.Clamp(volume / 100.0f, 0.0f, 1.0f);
 
             var devices = new MMDeviceEnumerator();
             var device = devices.GetDefaultAudioEndpoint(DataFlow.Render, NAudio.CoreAudioApi.Role.Multimedia);
