@@ -1,256 +1,197 @@
-﻿using Windows.Media.Control;
+﻿using ModelContextProtocol.Server;
 using System.ComponentModel;
-using System.Text.Json;
-using ModelContextProtocol.Server;
+using Windows.Media.Control;
 using NAudio.CoreAudioApi;
 
 namespace Yuki.Mcp.MediaPlayer.Tools;
 
+/// <summary>
+/// MCP-инструменты управления воспроизведением и системной громкостью.
+/// Все вызовы ограничены по времени, COM-объекты освобождаются,
+/// громкость и mute требуют явного подтверждения.
+/// </summary>
 internal class MediaPlayerTools {
-    private static GlobalSystemMediaTransportControlsSessionManager? _sessionManager;
-    private static GlobalSystemMediaTransportControlsSession? _currentSession;
-
     [McpServerTool]
     [Description("Получает информацию о текущем треке: исполнитель и название")]
     public static async Task<string> GetCurrentTrackInfo() {
-        try {
-            var session = await GetCurrentSession();
-            if (session == null) {
-                return JsonSerializer.Serialize(new {
-                    status = "warning",
-                    cause = "no_player",
-                    description = "Ни один плеер сейчас не воспроизводит музыку"
-                });
-            }
+        var sessionResult = await GetSessionAsync();
+        if (!sessionResult.Success)
+            return Error("player_error", sessionResult.Error!);
 
-            var mediaProperties = await session.TryGetMediaPropertiesAsync();
-            if (mediaProperties == null) {
-                return JsonSerializer.Serialize(new {
-                    status = "error",
-                    cause = "no_media_info",
-                    description = "Не удалось получить информацию о треке"
-                });
-            }
+        var session = sessionResult.Value;
+        if (session is null)
+            return Error("no_player", "Ни один плеер сейчас не воспроизводит музыку");
 
-            string title = mediaProperties.Title ?? "Неизвестно";
-            string artist = mediaProperties.Artist ?? "Неизвестный исполнитель";
+        var propertiesResult = await MediaPolicy.GuardAsync(async () => await session.TryGetMediaPropertiesAsync());
+        if (!propertiesResult.Success)
+            return Error("player_error", propertiesResult.Error!);
 
-            return JsonSerializer.Serialize(new {
-                status = "done",
-                message = $"{artist} - {title}",
-                titleMusic = title,
-                artistMusic = artist,
-                fullTrack = $"{artist} - {title}"
-            });
-        }
-        catch (Exception ex) {
-            return JsonSerializer.Serialize(new {
-                status = "error",
-                cause = "exception",
-                description = $"Ошибка получения информации: {ex.Message}"
-            });
-        }
+        var mediaProperties = propertiesResult.Value;
+        if (mediaProperties is null)
+            return Error("no_media_info", "Не удалось получить информацию о треке");
+
+        var title = string.IsNullOrWhiteSpace(mediaProperties.Title) ? "Неизвестно" : mediaProperties.Title;
+        var artist = string.IsNullOrWhiteSpace(mediaProperties.Artist) ? "Неизвестный исполнитель" : mediaProperties.Artist;
+        var fullTrack = $"{artist} - {title}";
+
+        return Ok(fullTrack, new {
+            titleMusic = title,
+            artistMusic = artist,
+            fullTrack
+        });
     }
 
     [McpServerTool]
     [Description("Ставит музыку на паузу или возобновляет воспроизведение")]
     public static async Task<string> PlayPause() {
-        try {
-            var session = await GetCurrentSession();
-            if (session == null) {
-                return JsonSerializer.Serialize(new {
-                    status = "error",
-                    cause = "no_player",
-                    description = "Нет активного плеера"
-                });
-            }
+        var sessionResult = await GetSessionAsync();
+        if (!sessionResult.Success)
+            return Error("player_error", sessionResult.Error!);
 
-            var playbackInfo = session.GetPlaybackInfo();
-            var currentStatus = playbackInfo.PlaybackStatus;
+        var session = sessionResult.Value;
+        if (session is null)
+            return Error("no_player", "Нет активного плеера");
 
-            if (currentStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing) {
-                await session.TryPauseAsync();
-                return JsonSerializer.Serialize(new {
-                    status = "done",
-                    message = "Воспроизведение поставлено на паузу",
-                    action = "pause",
-                    currentStatus = "paused"
-                });
-            }
-            else {
-                await session.TryPlayAsync();
-                return JsonSerializer.Serialize(new {
-                    status = "done",
-                    message = "Воспроизведение возобновлено",
-                    action = "play",
-                    currentStatus = "playing"
-                });
-            }
-        }
-        catch (Exception ex) {
-            return JsonSerializer.Serialize(new {
-                status = "error",
-                cause = "exception",
-                description = $"Ошибка: {ex.Message}"
-            });
-        }
+        var playbackResult = await MediaPolicy.GuardAsync(() => Task.FromResult(session.GetPlaybackInfo()));
+        if (!playbackResult.Success)
+            return Error("player_error", playbackResult.Error!);
+
+        var playbackInfo = playbackResult.Value;
+        if (playbackInfo is null)
+            return Error("player_error", "Не удалось получить состояние воспроизведения");
+
+        var isPlaying = playbackInfo.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
+        var actionResult = isPlaying
+            ? await MediaPolicy.GuardAsync(async () => await session.TryPauseAsync())
+            : await MediaPolicy.GuardAsync(async () => await session.TryPlayAsync());
+
+        if (!actionResult.Success)
+            return Error("player_error", actionResult.Error!);
+        if (!actionResult.Value)
+            return Error("operation_failed", "Плеер отказался выполнить операцию");
+
+        return Ok(isPlaying ? "Воспроизведение поставлено на паузу" : "Воспроизведение возобновлено", new {
+            action = isPlaying ? "pause" : "play",
+            playbackState = isPlaying ? "paused" : "playing"
+        });
     }
 
     [McpServerTool]
     [Description("Переключает на следующий трек")]
     public static async Task<string> NextTrack() {
-        try {
-            var session = await GetCurrentSession();
-            if (session == null) {
-                return JsonSerializer.Serialize(new {
-                    status = "error",
-                    cause = "no_player",
-                    description = "Нет активного плеера"
-                });
-            }
+        var sessionResult = await GetSessionAsync();
+        if (!sessionResult.Success)
+            return Error("player_error", sessionResult.Error!);
 
-            return await session.TrySkipNextAsync()
-                ? JsonSerializer.Serialize(new {
-                    status = "done",
-                    message = "Следующий трек",
-                    action = "next"
-                })
-                : JsonSerializer.Serialize(new {
-                    status = "error",
-                    cause = "unknown",
-                    description = "Попытка переключить трек не удалась по неизвестной причине"
-                });
-        }
-        catch (Exception ex) {
-            return JsonSerializer.Serialize(new {
-                status = "error",
-                cause = "exception",
-                description = $"Ошибка: {ex.Message}"
-            });
-        }
+        var session = sessionResult.Value;
+        if (session is null)
+            return Error("no_player", "Нет активного плеера");
+
+        var result = await MediaPolicy.GuardAsync(async () => await session.TrySkipNextAsync());
+        if (!result.Success)
+            return Error("player_error", result.Error!);
+        if (!result.Value)
+            return Error("operation_failed", "Попытка переключить трек не удалась");
+
+        return Ok("Следующий трек", new { action = "next" });
     }
 
     [McpServerTool]
     [Description("Переключает на предыдущий трек")]
     public static async Task<string> PreviousTrack() {
-        try {
-            var session = await GetCurrentSession();
-            if (session == null) {
-                return JsonSerializer.Serialize(new {
-                    status = "error",
-                    cause = "no_player",
-                    description = "Нет активного плеера"
-                });
-            }
+        var sessionResult = await GetSessionAsync();
+        if (!sessionResult.Success)
+            return Error("player_error", sessionResult.Error!);
 
-            await session.TrySkipPreviousAsync();
+        var session = sessionResult.Value;
+        if (session is null)
+            return Error("no_player", "Нет активного плеера");
 
-            return JsonSerializer.Serialize(new {
-                status = "done",
-                message = "Предыдущий трек",
-                action = "previous"
-            });
-        }
-        catch (Exception ex) {
-            return JsonSerializer.Serialize(new {
-                status = "error",
-                cause = "exception",
-                description = $"Ошибка: {ex.Message}"
-            });
-        }
+        var result = await MediaPolicy.GuardAsync(async () => await session.TrySkipPreviousAsync());
+        if (!result.Success)
+            return Error("player_error", result.Error!);
+        if (!result.Value)
+            return Error("operation_failed", "Попытка переключить трек не удалась");
+
+        return Ok("Предыдущий трек", new { action = "previous" });
     }
 
     [McpServerTool]
     [Description("Останавливает воспроизведение")]
     public static async Task<string> Stop() {
-        try {
-            var session = await GetCurrentSession();
-            if (session == null) {
-                return JsonSerializer.Serialize(new {
-                    status = "error",
-                    cause = "no_player",
-                    description = "Нет активного плеера"
-                });
-            }
+        var sessionResult = await GetSessionAsync();
+        if (!sessionResult.Success)
+            return Error("player_error", sessionResult.Error!);
 
-            await session.TryStopAsync();
+        var session = sessionResult.Value;
+        if (session is null)
+            return Error("no_player", "Нет активного плеера");
 
-            return JsonSerializer.Serialize(new {
-                status = "done",
-                message = "Воспроизведение остановлено",
-                action = "stop"
-            });
-        }
-        catch (Exception ex) {
-            return JsonSerializer.Serialize(new {
-                status = "error",
-                cause = "exception",
-                description = $"Ошибка: {ex.Message}"
-            });
-        }
+        var result = await MediaPolicy.GuardAsync(async () => await session.TryStopAsync());
+        if (!result.Success)
+            return Error("player_error", result.Error!);
+        if (!result.Value)
+            return Error("operation_failed", "Попытка остановить воспроизведение не удалась");
+
+        return Ok("Воспроизведение остановлено", new { action = "stop" });
     }
 
     [McpServerTool]
-    [Description("Изменение уровня громкости системы")]
-    public static string ChangeVolume([Description("Значение от 1 до 100.")] int volume) {
-        try {
-            var clampedVolume = Math.Clamp(volume / 100.0f, 0.0f, 1.0f);
+    [Description("Изменение уровня громкости системы. Опасная операция: требует подтверждения confirm = true.")]
+    public static async Task<string> ChangeVolume(
+        [Description("Значение от 1 до 100")] int volume,
+        [Description("Подтверждение. Ставь true только после явной просьбы пользователя")] bool confirm = false) {
+        if (!confirm)
+            return Error("confirmation_required", "Для изменения громкости требуется confirm = true");
+        if (!MediaPolicy.TryValidateVolume(volume, out var percent, out var error))
+            return Error("invalid_volume", error!);
 
-            var devices = new MMDeviceEnumerator();
-            var device = devices.GetDefaultAudioEndpoint(DataFlow.Render, NAudio.CoreAudioApi.Role.Multimedia);
-            device.AudioEndpointVolume.MasterVolumeLevelScalar = clampedVolume;
+        var result = await MediaPolicy.GuardAsync(() => Task.Run(() => {
+            using var enumerator = new MMDeviceEnumerator();
+            using var device = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+            device.AudioEndpointVolume.MasterVolumeLevelScalar = percent / 100f;
+            return percent;
+        }));
 
-            var percent = (int)(clampedVolume * 100);
+        if (!result.Success)
+            return Error("audio_error", result.Error!);
 
-            return JsonSerializer.Serialize(new {
-                status = "DONE",
-                message = $"Громкость установлена на {percent}%",
-                volume = clampedVolume,
-                percentVolume = percent
-            });
-        }
-        catch (Exception ex) {
-            return JsonSerializer.Serialize(new {
-                status = "ERROR",
-                cause = "audio_error",
-                description = $"Ошибка изменения громкости: {ex.Message}"
-            });
-        }
+        return Ok($"Громкость установлена на {percent}%", new {
+            volume = percent / 100f,
+            percentVolume = percent
+        });
     }
 
     [McpServerTool]
-    [Description("Отключение громкости системы")]
-    public static string VolumeTurnOff() {
-        try {
-            var devices = new MMDeviceEnumerator();
-            var device = devices.GetDefaultAudioEndpoint(DataFlow.Render, NAudio.CoreAudioApi.Role.Multimedia);
+    [Description("Выключает системный звук. Опасная операция: требует подтверждения confirm = true.")]
+    public static async Task<string> VolumeTurnOff(
+        [Description("Подтверждение. Ставь true только после явной просьбы пользователя")] bool confirm = false) {
+        if (!confirm)
+            return Error("confirmation_required", "Для выключения звука требуется confirm = true");
+
+        var result = await MediaPolicy.GuardAsync(() => Task.Run(() => {
+            using var enumerator = new MMDeviceEnumerator();
+            using var device = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
             device.AudioEndpointVolume.Mute = true;
+            return true;
+        }));
 
-            return JsonSerializer.Serialize(new {
-                status = "DONE",
-                message = "Звук выключен",
-                isMuted = true
-            });
-        }
-        catch (Exception ex) {
-            return JsonSerializer.Serialize(new {
-                status = "ERROR",
-                cause = "audio_error",
-                description = $"Ошибка отключения звука: {ex.Message}"
-            });
-        }
+        if (!result.Success)
+            return Error("audio_error", result.Error!);
+
+        return Ok("Звук выключен", new { isMuted = true });
     }
 
-    private static async Task<GlobalSystemMediaTransportControlsSessionManager> GetSessionManager() {
-        if (_sessionManager == null) {
-            _sessionManager = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync();
-        }
-        return _sessionManager;
-    }
+    private static Task<GuardedResult<GlobalSystemMediaTransportControlsSession?>> GetSessionAsync()
+        => MediaPolicy.GuardAsync(async () => {
+            // Не кэшируем сессию: старый экземпляр может остаться от закрытого плеера.
+            var manager = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync();
+            return (GlobalSystemMediaTransportControlsSession?)manager.GetCurrentSession();
+        });
 
-    private static async Task<GlobalSystemMediaTransportControlsSession?> GetCurrentSession() {
-        var manager = await GetSessionManager();
-        _currentSession = manager.GetCurrentSession();
-        return _currentSession;
-    }
+    private static string Ok(string message, object? data = null)
+        => MediaResponses.Ok(message, data);
+
+    private static string Error(string cause, string description)
+        => MediaResponses.Error(cause, description);
 }
