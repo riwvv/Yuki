@@ -1,12 +1,12 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using System.Text;
 using System.Windows;
 using Yuki.Core.HostAgent.Contracts;
 using Yuki.Core.STT.Contracts;
 using Yuki.Core.STT.Services;
 using Yuki.Core.TTS.Contracts;
+using Yuki.Core.TTS.Utils;
 using Yuki.ViewModels;
 using Yuki.Views;
 
@@ -73,12 +73,16 @@ public static class AppBootstrap {
             try {
                 if (ttsPlayer == null)
                     throw new Exception($"{nameof(ttsPlayer)} is null");
-                var fullResponse = new StringBuilder();
-                await foreach (var messageBlock in hostAgent.RespondToUserAsync(requestText)) {
-                    fullResponse.Append(messageBlock);
-                    ttsPlayer.EnqueueText(messageBlock);
-                }
-                logger.LogInformation("Юки: {Response}", fullResponse.ToString());
+
+                // TTS сам режет текст на предложения и делает паузы между ними,
+                // поэтому отдаём весь ответ одной фразой. Поточная подача по
+                // токенам давала дробную, роботизированную озвучку и огромную
+                // очередь: каждое слово синтезировалось отдельно.
+                var response = await ResponseTextAggregator.AggregateAsync(
+                    hostAgent.RespondToUserAsync(requestText));
+
+                ttsPlayer.EnqueueText(response);
+                logger.LogInformation("Юки: {Response}", response);
             }
             catch (Exception ex) {
                 logger.LogError(ex, "Юки: не удалось получить ответ от Host");

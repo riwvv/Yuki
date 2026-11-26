@@ -3,6 +3,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System.IO;
 using System.Text;
+using System.Threading.Tasks;
 using System.Windows;
 using Serilog;
 using Serilog.Events;
@@ -49,6 +50,20 @@ public partial class App : Application {
 
             _host = builder.Build();
             _logger = _host.Services.GetRequiredService<ILogger<App>>();
+
+            // Serilog не ловит необработанные исключения сам — без этих
+            // обработчиков краш остаётся невидимым в логе.
+            DispatcherUnhandledException += (_, args) =>
+                Log.Fatal(args.Exception, "Краш: необработанное исключение UI-потока");
+
+            AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+                Log.Fatal(args.ExceptionObject as Exception ?? new Exception(args.ExceptionObject?.ToString()),
+                    "Краш: необработанное исключение фонового потока");
+
+            TaskScheduler.UnobservedTaskException += (_, args) => {
+                Log.Warning(args.Exception, "Краш: не наблюдаемое исключение задачи");
+                args.SetObserved();
+            };
         }
         catch (Exception ex) {
             _host = null;

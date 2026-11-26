@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using System.Threading.Channels;
 using NAudio.Wave;
 using Yuki.Core.TTS.Contracts;
@@ -22,7 +22,9 @@ public sealed class TextToSpeechPlayer : ITextToSpeechPlayer {
     public bool IsSpeaking {
         get {
             lock (_playbackLock) {
-                return _queue.Reader.Count > 0 || _currentOutput?.PlaybackState == PlaybackState.Playing;
+                // Reader.Count бросает NotSupportedException, если канал
+                // создан с SingleReader = true. TryPeek работает в обоих случаях.
+                return _queue.Reader.TryPeek(out _) || _currentOutput?.PlaybackState == PlaybackState.Playing;
             }
         }
     }
