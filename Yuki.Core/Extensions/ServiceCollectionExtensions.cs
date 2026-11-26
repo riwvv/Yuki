@@ -1,4 +1,4 @@
-﻿using BlackSharp.Core.Logging;
+using BlackSharp.Core.Logging;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -6,6 +6,8 @@ using Microsoft.Extensions.Options;
 using Yuki.Core.Configurations;
 using Yuki.Core.HostAgent.Contracts;
 using Yuki.Core.HostAgent.Services;
+using Yuki.Core.MCP.Contracts;
+using Yuki.Core.MCP.Services;
 using Yuki.Core.ResourceManagement.Contracts;
 using Yuki.Core.ResourceManagement.Services;
 using Yuki.Core.ServantAgent.Contracts;
@@ -81,12 +83,16 @@ public static class ServiceCollectionExtensions {
             var gpuLayerResolver = sp.GetRequiredService<IGpuLayerResolver>();
             var logger = sp.GetRequiredService<ILogger<LlamaWeightsProvider>>();
             var gpuLayers = gpuLayerResolver.ResolveGpuLayers(modelPath, Convert.ToInt32(Math.Max(hostSettings.ContextSize, servantSettings.ContextSize)));
-            logger.LogInformation($"Resource manager: выделяю {gpuLayers} слоёв на GPU для Host");
-            return new LlamaWeightsProvider(modelPath, gpuLayers);
+            logger.LogInformation("LLM: модель {Model} — {Layers} слоёв на GPU", Path.GetFileName(modelPath), gpuLayers);
+            var provider = new LlamaWeightsProvider(modelPath, gpuLayers);
+            logger.LogInformation("LLM: веса загружены");
+            return provider;
         });
+        services.AddSingleton<IMcpManager, McpManager>();
 
         services.AddHostedService<ResourceMonitorBackgroundService>();
         services.AddHostedService<VoiceInteractionHostedService>();
+        services.AddHostedService<McpHostedService>();
 
         return services;
     }

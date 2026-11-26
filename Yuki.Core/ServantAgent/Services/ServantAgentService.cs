@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.SemanticKernel;
@@ -8,34 +8,39 @@ using LLama.Abstractions;
 using LLama.Common;
 using Yuki.Core.Configurations;
 using Yuki.Core.ServantAgent.Contracts;
-using Yuki.Core.ServantAgent.Plugins;
 using Yuki.Core.Wrappers.Services;
 using Yuki.Core.Wrappers.Utils;
+using Yuki.Core.MCP.Contracts;
 using ChatHistory = Microsoft.SemanticKernel.ChatCompletion.ChatHistory;
+using Yuki.Core.ServantAgent.Plugins;
 
 namespace Yuki.Core.ServantAgent.Services;
 
-public class ServantAgentService : IServantAgentService {
-    private readonly Kernel _kernel;
+public sealed class ServantAgentService : IServantAgentService {
     private readonly LlamaWeightsProvider _weightsProvider;
-    private readonly IChatCompletionService _chatService;
     private readonly PromptExecutionSettings _settings;
-    private readonly ILogger<ServantAgentService> _logger;
-    private readonly string _systemPrompt;
-    private readonly SemaphoreSlim _taskLock;
+    private readonly YukiChatCompletion _yukiChatCompletion;
     private readonly ModelParams _contextParams;
+    private readonly IMcpManager _mcpManager;
+    private readonly ILogger<ServantAgentService> _logger;
     private readonly TimeSpan _taskTimeout = TimeSpan.FromSeconds(60);
+    private readonly SemaphoreSlim _taskLock;
+    private readonly Lock _kernelLock;
+    private readonly string _systemPrompt;
 
     private ILLamaExecutor _executor;
+    private IChatCompletionService? _chatService;
+    private Kernel? _kernel;
 
-    // свободен ли
     public bool IsIdle => _taskLock.CurrentCount == 1;
 
     public event Action<string>? TaskCompleted;
 
-    public ServantAgentService(LlamaWeightsProvider weightsProvider, IOptions<ServantContextParamsSettings> contextSettings, IOptions<YukiChatCompletionSettings> chatCompletionOptions, ILogger<ServantAgentService> logger, ILogger<YukiChatCompletion> chatCompletionLogger) {
+    public ServantAgentService(LlamaWeightsProvider weightsProvider, IMcpManager mcpManager, IOptions<ServantContextParamsSettings> contextSettings, IOptions<YukiChatCompletionSettings> chatCompletionOptions, ILogger<ServantAgentService> logger, ILogger<YukiChatCompletion> chatCompletionLogger) {
         _logger = logger;
         _taskLock = new(1, 1);
+        _kernelLock = new();
+        _mcpManager = mcpManager;
 
         _systemPrompt = Utils.ReadSystemPromptFromFile("ServantAgentPrompt.txt").TrimStart('\uFEFF');
 
@@ -49,21 +54,7 @@ public class ServantAgentService : IServantAgentService {
 
         _executor = new StatelessExecutor(_weightsProvider.Weights, _contextParams);
 
-        var chatService = new YukiChatCompletion(() => _executor, new QwenChatMLTransform(), chatCompletionOptions.Value, chatCompletionLogger);
-
-        var builder = Kernel.CreateBuilder();
-        builder.Services.AddSingleton<IChatCompletionService>(chatService);
-
-        builder.Plugins.AddFromType<BrowserPlugin>();
-        builder.Plugins.AddFromType<FileSystemPlugin>();
-        builder.Plugins.AddFromType<MediaPlayerPlugin>();
-        builder.Plugins.AddFromType<MiniGamePlugin>();
-        builder.Plugins.AddFromType<SystemAudioPlugin>();
-        builder.Plugins.AddFromType<SystemCommandPlugin>();
-        builder.Plugins.AddFromType<SystemPlugins>();
-
-        _kernel = builder.Build();
-        _chatService = _kernel.GetRequiredService<IChatCompletionService>();
+        _yukiChatCompletion = new YukiChatCompletion(() => _executor, new QwenChatMLTransform(), chatCompletionOptions.Value, chatCompletionLogger);
 
         _weightsProvider.WeightsReloaded += OnWeightsReloaded;
     }
@@ -71,7 +62,9 @@ public class ServantAgentService : IServantAgentService {
     public async Task ExecuteTaskAsync(string taskDescription, CancellationToken ct = default) {
         await _taskLock.WaitAsync(ct);
         try {
-            _logger.LogInformation($"Servant: начал работу над задачей - {taskDescription}");
+            var kernel = GetOrCreateKernel();
+
+            _logger.LogInformation("Servant: начал задачу «{Task}»", taskDescription);
 
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             cts.CancelAfter(_taskTimeout);
@@ -80,11 +73,11 @@ public class ServantAgentService : IServantAgentService {
             chatHistory.AddSystemMessage(_systemPrompt);
             chatHistory.AddUserMessage(taskDescription);
 
-            var result = await _chatService.GetChatMessageContentAsync(chatHistory, _settings, _kernel, cts.Token);
+            var result = await _chatService!.GetChatMessageContentAsync(chatHistory, _settings, kernel, cts.Token);
 
             var resultText = string.IsNullOrWhiteSpace(result.Content) ? "Инструмент не вернул результат." : result.Content;
 
-            _logger.LogInformation($"Servant: завершил задачу. Результат: {resultText}");
+            _logger.LogInformation("Servant: задача завершена. Результат: {Result}", resultText);
             TaskCompleted?.Invoke(resultText);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) {
@@ -96,7 +89,7 @@ public class ServantAgentService : IServantAgentService {
             TaskCompleted?.Invoke("Задача превысила допустимое время выполнения.");
         }
         catch (Exception ex) {
-            _logger.LogError(ex, "Ошибка при выполнении задачи Servant'ом");
+            _logger.LogError(ex, "Servant: задача завершилась ошибкой");
             TaskCompleted?.Invoke("Произошла ошибка при выполнении задачи.");
         }
         finally {
@@ -104,10 +97,8 @@ public class ServantAgentService : IServantAgentService {
         }
     }
 
-    // захват лока
     public async Task<bool> TryAcquireReloadLockAsync(TimeSpan timeout, CancellationToken ct = default) => await _taskLock.WaitAsync(timeout, ct);
 
-    // освобождаем лок
     public void ReleaseReloadLock() => _taskLock.Release();
 
     private void OnWeightsReloaded(LLamaWeights newWeights) {
@@ -115,8 +106,32 @@ public class ServantAgentService : IServantAgentService {
         _executor = new StatelessExecutor(newWeights, _contextParams);
     }
 
-    public void Dispose() {
+    private Kernel GetOrCreateKernel() {
+        if (_kernel != null)
+            return _kernel;
+
+        lock (_kernelLock) {
+            _logger.LogInformation("Servant: инициализация Kernel с MCP");
+
+            var tools = _mcpManager.GetAllTools();
+            _logger.LogInformation("Servant: получено {Count} инструментов из MCP", tools.Count());
+
+            var builder = Kernel.CreateBuilder();
+            builder.Services.AddSingleton<IChatCompletionService>(_yukiChatCompletion);
+
+            builder.Plugins.AddFromFunctions("McpTools", tools.Select(x => x.AsKernelFunction()));
+            builder.Plugins.AddFromType<MiniGamePlugin>();
+
+            _kernel = builder.Build();
+            _chatService = _kernel.GetRequiredService<IChatCompletionService>();
+
+            return _kernel;
+        }
+    }
+
+    public async ValueTask DisposeAsync() {
         _weightsProvider.WeightsReloaded -= OnWeightsReloaded;
         _taskLock.Dispose();
+        await _mcpManager.DisposeAsync();
     }
 }

@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Yuki.Core.STT.Contracts;
 
@@ -14,10 +14,10 @@ public sealed class VoiceInteractionHostedService(IVoiceInteractionService _voic
         try {
             _voiceInteraction.Start();
             _wakeWordListener.Start();
-            _logger.LogInformation("System: Голосовое взаимодействие запущено");
+            _logger.LogInformation("Голос: детектор ключевого слова и микрофон запущены");
         }
         catch (Exception ex) {
-            _logger.LogError(ex, "Ошибка при запуске голосового взаимодействия");
+            _logger.LogError(ex, "Голос: ошибка запуска");
             _started = false;
             throw;
         }
@@ -32,10 +32,10 @@ public sealed class VoiceInteractionHostedService(IVoiceInteractionService _voic
         try {
             _voiceInteraction.Stop();
             _wakeWordListener.Stop();
-            _logger.LogInformation("System: Голосовое взаимодействие остановлено");
+            _logger.LogInformation("Голос: ключевое слово и микрофон остановлены");
         }
         catch (Exception ex) {
-            _logger.LogError(ex, "Ошибка при остановке голосового взаимодействия");
+            _logger.LogError(ex, "Голос: ошибка остановки");
             _started = false;
             throw;
         }

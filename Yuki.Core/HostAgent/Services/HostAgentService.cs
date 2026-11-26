@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
@@ -123,7 +123,7 @@ public class HostAgentService : IHostAgentService {
             await foreach (var token in ExtractAndStreamMessage(stream, fullJson, cancellationToken))
                 yield return token;
 
-            _logger.LogInformation($"Сырой JSON: {fullJson}");
+            _logger.LogDebug("Host: сырой JSON ответа: {Json}", fullJson.ToString());
 
             if (allowToolCall)
                 ProcessToolCall(fullJson.ToString());
@@ -157,7 +157,8 @@ public class HostAgentService : IHostAgentService {
 
             if (!toolCall.TryGetProperty("args", out var args) ||
                 !args.TryGetProperty("task", out var taskElement)) {
-                _logger.LogWarning("Host: tool_call без args.task. Пропущено. JSON: {Json}", json);
+                _logger.LogWarning("Host: tool_call без args.task. Пропущено. JSON: {Json}",
+                    json.Length > 400 ? json[..400] + "…" : json);
                 return;
             }
 
@@ -167,14 +168,14 @@ public class HostAgentService : IHostAgentService {
                 return;
             }
 
-            _logger.LogInformation($"System: Host делегирует задачу Servant'у: {task}");
+            _logger.LogInformation("Host: делегирую задачу Servant'у: {Task}", task);
 
             _ = Task.Run(async () => {
                 try { 
                     await _servantAgent.ExecuteTaskAsync(task); 
                 }
                 catch (Exception ex) { 
-                    _logger.LogError(ex, "Ошибка при выполнении задачи Servant'ом"); 
+                    _logger.LogError(ex, "Host: задача Servant'а завершилась ошибкой"); 
                 }
             });
         }
@@ -204,11 +205,11 @@ public class HostAgentService : IHostAgentService {
                 return;
             }
 
-            _logger.LogInformation("Host: получил отчёт от Servant'а");
+            _logger.LogInformation("Host: отчёт Servant'а — {Result}", result);
             await StreamAndInvokeResponseGeneratedAsync(RespondToServantResultAsync(result));
         }
         catch (Exception ex) {
-            _logger.LogError(ex, "Ошибка при обработке отчёта Servant'а");
+            _logger.LogError(ex, "Host: ошибка при обработке отчёта Servant'а");
         }
     }
 
