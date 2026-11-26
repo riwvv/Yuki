@@ -5,273 +5,171 @@ using System.Text.Json;
 
 namespace Yuki.Mcp.SystemCommand.Tools;
 
+/// <summary>
+/// MCP-инструменты системных действий. Модель не может передать сюда
+/// произвольную команду: доступны только операции из WhitelistedCommands.
+/// </summary>
 internal class SystemCommandTools {
     [McpServerTool]
-    [Description("Выполняет CMD команду. Только для команд которые не закрыты другими функциями: ipconfig, ping, tasklist")]
-    public static async Task<string> ExecuteCMD([Description("CMD команда")] string command) {
-        if (string.IsNullOrWhiteSpace(command)) {
-            return JsonSerializer.Serialize(new {
-                status = "error",
-                cause = "empty_command",
-                description = "Команда не может быть пустой"
-            });
-        }
+    [Description("Показывает сетевые настройки (аналог ipconfig). Произвольные аргументы не принимаются.")]
+    public static Task<string> GetIpConfig(
+        [Description("Показать подробную информацию (/all)")] bool all = false)
+        => RunWhitelistedAsync(WhitelistedCommands.IpConfig(all), "Сетевые настройки получены");
+
+    [McpServerTool]
+    [Description("Проверяет доступность хоста командой ping. Можно указать только DNS-имя или IP-адрес.")]
+    public static async Task<string> PingHost(
+        [Description("Хост, например google.com или 8.8.8.8")] string host,
+        [Description("Количество пакетов, от 1 до 10")] int count = 3) {
+        if (!WhitelistedCommands.TryPing(host, count, out var spec, out var error))
+            return NotAllowed(error);
+
+        return await RunWhitelistedAsync(spec!, $"Проверка хоста {host} завершена");
+    }
+
+    [McpServerTool]
+    [Description("Показывает список запущенных процессов (аналог tasklist).")]
+    public static Task<string> GetTaskList()
+        => RunWhitelistedAsync(WhitelistedCommands.TaskList(), "Список процессов получен");
+
+    [McpServerTool]
+    [Description("Возвращает список процессов с идентификаторами. Можно отфильтровать по имени.")]
+    public static string GetProcessList(
+        [Description("Имя процесса, например chrome. Пусто — все процессы")] string? name = null) {
+        if (!WhitelistedCommands.TryValidateProcessName(name, out var validatedName, out var error))
+            return NotAllowed(error);
 
         try {
-            var psi = new ProcessStartInfo {
-                FileName = "cmd.exe",
-                Arguments = $"/c {command}",
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                WindowStyle = ProcessWindowStyle.Hidden
-            };
+            var processes = Process.GetProcesses()
+                .Select(process => {
+                    using (process) {
+                        try {
+                            return new { process.Id, process.ProcessName };
+                        }
+                        catch {
+                            return null;
+                        }
+                    }
+                })
+                .Where(item => item is not null)
+                .Where(item => string.IsNullOrEmpty(validatedName) ||
+                               item!.ProcessName.Equals(validatedName, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(item => item!.ProcessName)
+                .ThenBy(item => item!.Id)
+                .Take(200)
+                .ToArray();
 
-            using var process = Process.Start(psi);
-            if (process == null) {
-                return JsonSerializer.Serialize(new {
-                    status = "error",
-                    cause = "process_failed",
-                    description = "Не удалось выполнить команду"
-                });
-            }
-
-            string output = await process.StandardOutput.ReadToEndAsync();
-            string error = await process.StandardError.ReadToEndAsync();
-            await process.WaitForExitAsync();
-
-            if (!string.IsNullOrEmpty(error)) {
-                return JsonSerializer.Serialize(new {
-                    status = "error",
-                    cause = "command_error",
-                    description = error.Trim()
-                });
-            }
-
-            var result = string.IsNullOrEmpty(output) ? "Команда выполнена" : output.Trim();
-
-            return JsonSerializer.Serialize(new {
-                status = "done",
-                message = result,
-                output = result,
-                originalCommand = command,
-                shell = "cmd"
-            });
+            return Ok($"Найдено процессов: {processes.Length}", new { processes });
         }
         catch (Exception ex) {
-            return JsonSerializer.Serialize(new {
-                status = "error",
-                cause = "exception",
-                description = $"Ошибка выполнения: {ex.Message}"
-            });
+            return Error("process_list_failed", $"Не удалось получить список процессов: {ex.Message}");
         }
     }
 
     [McpServerTool]
-    [Description("Выполняет PowerShell команду. Используй для: Clear-RecycleBin, Get-Date, Get-Process")]
-    public static async Task<string> ExecutePowerShell([Description("PowerShell команда")] string command) {
-        if (string.IsNullOrWhiteSpace(command)) {
-            return JsonSerializer.Serialize(new {
-                status = "error",
-                cause = "empty_command",
-                description = "Команда не может быть пустой"
-            });
-        }
+    [Description("Очищает корзину. Опасная операция: требует подтверждения confirm = true.")]
+    public static async Task<string> ClearRecycleBin(
+        [Description("Подтверждение. Ставь true только после явной просьбы пользователя")] bool confirm = false) {
+        if (!confirm)
+            return Error("confirmation_required", "Для очистки корзины требуется confirm = true");
 
-        try {
-            var psi = new ProcessStartInfo {
-                FileName = "powershell.exe",
-                Arguments = $"-NoProfile -Command \"{command}\"",
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                WindowStyle = ProcessWindowStyle.Hidden
-            };
-
-            using var process = Process.Start(psi);
-            if (process == null) {
-                return JsonSerializer.Serialize(new {
-                    status = "error",
-                    cause = "process_failed",
-                    description = "Не удалось выполнить команду"
-                });
-            }
-
-            var outputTask = process.StandardOutput.ReadToEndAsync();
-            var errorTask = process.StandardError.ReadToEndAsync();
-            await process.WaitForExitAsync();
-
-            string output = await outputTask;
-            string error = await errorTask;
-
-            if (!string.IsNullOrEmpty(error)) {
-                return JsonSerializer.Serialize(new {
-                    status = "error",
-                    cause = "command_error",
-                    description = error.Trim()
-                });
-            }
-
-            var result = string.IsNullOrEmpty(output) ? "Команда выполнена" : output.Trim();
-
-            return JsonSerializer.Serialize(new {
-                status = "done",
-                message = result,
-                output = result,
-                originalCommand = command,
-                shell = "powershell"
-            });
-        }
-        catch (Exception ex) {
-            return JsonSerializer.Serialize(new {
-                status = "error",
-                cause = "exception",
-                description = $"Ошибка выполнения: {ex.Message}"
-            });
-        }
+        return await RunWhitelistedAsync(WhitelistedCommands.ClearRecycleBin(), "Корзина очищена");
     }
 
     [McpServerTool]
-    [Description("Блокирует компьютер. Вызови эту функцию когда пользователь говорит: заблокируй экран, блокировка, lock screen")]
-    public static string LockScreen() {
-        try {
-            Process.Start("rundll32.exe", "user32.dll,LockWorkStation");
-            return JsonSerializer.Serialize(new {
-                status = "done",
-                message = "Экран заблокирован",
-                action = "lock_screen"
-            });
-        }
-        catch (Exception ex) {
-            return JsonSerializer.Serialize(new {
-                status = "error",
-                cause = "lock_failed",
-                description = $"Ошибка блокировки: {ex.Message}"
-            });
-        }
-    }
+    [Description("Блокирует компьютер. Вызови, когда пользователь говорит: заблокируй экран, блокировка, lock screen.")]
+    public static string LockScreen()
+        => StartDetached(WhitelistedCommands.LockScreen(), "Экран заблокирован");
 
     [McpServerTool]
-    [Description("Сворачивает все окна. Вызови когда пользователь говорит: сверни окна, покажи рабочий стол, minimize all")]
-    public static string MinimizeAllWindows() {
-        try {
-            Process.Start(new ProcessStartInfo {
-                FileName = "powershell.exe",
-                Arguments = "-NoProfile -Command \"(New-Object -ComObject Shell.Application).MinimizeAll()\"",
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                WindowStyle = ProcessWindowStyle.Hidden
-            });
-            return JsonSerializer.Serialize(new {
-                status = "done",
-                message = "Все окна свёрнуты",
-                action = "minimize_all"
-            });
-        }
-        catch (Exception ex) {
-            return JsonSerializer.Serialize(new {
-                status = "error",
-                cause = "minimize_failed",
-                description = $"Ошибка: {ex.Message}"
-            });
-        }
-    }
+    [Description("Сворачивает все окна. Вызови, когда пользователь говорит: сверни окна, покажи рабочий стол, minimize all.")]
+    public static Task<string> MinimizeAllWindows()
+        => RunWhitelistedAsync(WhitelistedCommands.MinimizeAllWindows(), "Все окна свёрнуты");
 
     [McpServerTool]
-    [Description("Открывает диспетчер задач. Вызови когда пользователь говорит: открой диспетчер задач, task manager")]
-    public static string OpenTaskManager() {
-        try {
-            Process.Start("taskmgr.exe");
-            return JsonSerializer.Serialize(new {
-                status = "DONE",
-                message = "Диспетчер задач открыт",
-                action = "open_task_manager"
-            });
-        }
-        catch (Exception ex) {
-            return JsonSerializer.Serialize(new {
-                status = "error",
-                cause = "open_failed",
-                description = $"Ошибка: {ex.Message}"
-            });
-        }
-    }
+    [Description("Открывает диспетчер задач. Вызови, когда пользователь говорит: открой диспетчер задач, task manager.")]
+    public static string OpenTaskManager()
+        => StartDetached(WhitelistedCommands.OpenTaskManager(), "Диспетчер задач открыт");
 
     [McpServerTool]
-    [Description("Выключает компьютер. Вызови когда пользователь говорит: выключи компьютер, shutdown")]
-    public static string Shutdown() {
-        try {
-            Process.Start("shutdown", "/s /t 15 /c \"Юки выключает компьютер\"");
-            return JsonSerializer.Serialize(new {
-                status = "done",
-                message = "Выключаю компьютер через 15 секунд",
-                action = "shutdown",
-                delay = 15
-            });
-        }
-        catch (Exception ex) {
-            return JsonSerializer.Serialize(new {
-                status = "error",
-                cause = "shutdown_failed",
-                description = $"Ошибка: {ex.Message}"
-            });
-        }
-    }
+    [Description("Выключает компьютер через 15 секунд. Опасная операция: требует подтверждения confirm = true.")]
+    public static Task<string> Shutdown(
+        [Description("Подтверждение. Ставь true только после явной просьбы пользователя выключить ПК")] bool confirm = false)
+        => ConfirmOrRun(confirm, WhitelistedCommands.Shutdown(restart: false), "Выключаю компьютер через 15 секунд");
 
     [McpServerTool]
-    [Description("Перезагружает компьютер. Вызови когда пользователь говорит: перезагрузи, restart, reboot")]
-    public static string Restart() {
-        try {
-            Process.Start("shutdown", "/r /t 15 /c \"Юки перезагружает компьютер\"");
-            return JsonSerializer.Serialize(new {
-                status = "done",
-                message = "Перезагружаю компьютер через 15 секунд",
-                action = "restart",
-                delay = 15
-            });
-        }
-        catch (Exception ex) {
-            return JsonSerializer.Serialize(new {
-                status = "error",
-                cause = "restart_failed",
-                description = $"Ошибка: {ex.Message}"
-            });
-        }
-    }
+    [Description("Перезагружает компьютер через 15 секунд. Опасная операция: требует подтверждения confirm = true.")]
+    public static Task<string> Restart(
+        [Description("Подтверждение. Ставь true только после явной просьбы пользователя перезагрузить ПК")] bool confirm = false)
+        => ConfirmOrRun(confirm, WhitelistedCommands.Shutdown(restart: true), "Перезагружаю компьютер через 15 секунд");
 
     [McpServerTool]
-    [Description("Отменяет выключение. Вызови когда пользователь говорит: отмени выключение, cancel shutdown")]
-    public static string CancelShutdown() {
-        try {
-            Process.Start("shutdown", "/a");
-            return JsonSerializer.Serialize(new {
-                status = "done",
-                message = "Выключение отменено",
-                action = "cancel_shutdown"
-            });
-        }
-        catch (Exception ex) {
-            return JsonSerializer.Serialize(new {
-                status = "error",
-                cause = "cancel_failed",
-                description = $"Ошибка: {ex.Message}"
-            });
-        }
-    }
+    [Description("Отменяет запланированное выключение или перезагрузку. Вызови, когда пользователь говорит: отмени выключение, cancel shutdown.")]
+    public static Task<string> CancelShutdown()
+        => RunWhitelistedAsync(WhitelistedCommands.CancelShutdown(), "Запланированное выключение отменено");
 
     [McpServerTool]
     [Description("Возвращает текущее системное время и дату.")]
-    public string GetCurrentTime() {
+    public static string GetCurrentTime() {
         var now = DateTime.Now;
-        return JsonSerializer.Serialize(new {
-            status = "DONE",
-            message = now.ToString("HH:mm"),
-            data = new {
-                fullDate = now.ToString("dd.MM.yyyy"),
-                time = now.ToString("HH:mm")
-            }
+        var time = now.ToString("HH:mm");
+        return Ok($"Сейчас {time}", new {
+            fullDate = now.ToString("dd.MM.yyyy"),
+            time
         });
     }
+
+    private static Task<string> ConfirmOrRun(bool confirm, ProcessSpec spec, string message)
+        => confirm
+            ? RunWhitelistedAsync(spec, message)
+            : Task.FromResult(Error("confirmation_required",
+                "Для выключения/перезагрузки требуется confirm = true и явная просьба пользователя"));
+
+    private static async Task<string> RunWhitelistedAsync(ProcessSpec spec, string successMessage) {
+        var result = await ProcessRunner.RunAsync(spec);
+
+        if (!result.Started)
+            return Error("process_failed", result.StartFailure ?? "Не удалось запустить процесс");
+
+        if (result.TimedOut)
+            return Error("timeout", $"Команда «{spec.Display}» превысила лимит {spec.Timeout.TotalSeconds:0} сек");
+
+        if (result.ExitCode != 0) {
+            var details = string.IsNullOrWhiteSpace(result.Error)
+                ? $"Код выхода {result.ExitCode}"
+                : result.Error.Trim();
+            return Error("command_error", details);
+        }
+
+        var output = string.IsNullOrWhiteSpace(result.Output)
+            ? successMessage
+            : result.Output.Trim();
+
+        return Ok(successMessage, new {
+            command = spec.Display,
+            output
+        });
+    }
+
+    private static string StartDetached(ProcessSpec spec, string message) {
+        try {
+            using var process = Process.Start(ProcessRunner.CreateStartInfo(spec));
+            if (process is null)
+                return Error("process_failed", "Не удалось запустить процесс");
+
+            return Ok(message, new { command = spec.Display });
+        }
+        catch (Exception ex) {
+            return Error("process_failed", $"Не удалось запустить процесс: {ex.Message}");
+        }
+    }
+
+    private static string NotAllowed(string? detail)
+        => Error("not_allowed", detail ?? "Операция не разрешена whitelist'ом");
+
+    private static string Ok(string message, object? data = null)
+        => JsonSerializer.Serialize(new { status = "done", message, data });
+
+    private static string Error(string cause, string description)
+        => JsonSerializer.Serialize(new { status = "error", cause, description });
 }
