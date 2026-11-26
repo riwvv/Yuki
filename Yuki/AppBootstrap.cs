@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System.Text;
@@ -40,7 +40,7 @@ public static class AppBootstrap {
         ITextToSpeechPlayer? ttsPlayer = null;
         try {
             await Task.Run(() => ttsPlayer = host.Services.GetRequiredService<ITextToSpeechPlayer>());
-            logger.LogInformation("System: TTS-движок успешно инициализирован");
+            logger.LogInformation("TTS: движок инициализирован");
             return ttsPlayer ?? throw new NullReferenceException($"{nameof(ttsPlayer)} is null");
         }
         catch (Exception ex) {
@@ -52,7 +52,7 @@ public static class AppBootstrap {
         mainWindowViewModel.State = "Загрузка STT-движка...";
         var voiceInteraction = await Task.Run(() => host.Services.GetRequiredService<IVoiceInteractionService>());
         voiceInteraction.StateChanged += state => {
-            logger.LogInformation($"Voice state: {state}");
+            logger.LogInformation("Голос: состояние {State}", state);
             Application.Current.Dispatcher.Invoke(() => {
                 mainWindowViewModel.State = state switch {
                     VoiceInteractionState.Idle => "Готова",
@@ -69,7 +69,7 @@ public static class AppBootstrap {
 
     public static void ImplementationVoiceCycle(IVoiceInteractionService voiceInteraction, ITextToSpeechPlayer ttsPlayer, IHostAgentService hostAgent, ILogger logger) {
         voiceInteraction.RequestReady = async requestText => {
-            logger.LogInformation($"Распознано: {requestText}");
+            logger.LogInformation("Голос: распознано «{Text}»", requestText);
             try {
                 if (ttsPlayer == null)
                     throw new Exception($"{nameof(ttsPlayer)} is null");
@@ -77,11 +77,11 @@ public static class AppBootstrap {
                 await foreach (var messageBlock in hostAgent.RespondToUserAsync(requestText)) {
                     fullResponse.Append(messageBlock);
                     ttsPlayer.EnqueueText(messageBlock);
-                    logger.LogInformation($"Yuki: {fullResponse}");
                 }
+                logger.LogInformation("Юки: {Response}", fullResponse.ToString());
             }
             catch (Exception ex) {
-                logger.LogError(ex, "Ошибка при генерации ответа Host'ом");
+                logger.LogError(ex, "Юки: не удалось получить ответ от Host");
             }
             finally {
                 voiceInteraction.EndBusy();
@@ -89,12 +89,12 @@ public static class AppBootstrap {
         };
 
         hostAgent.ResponseGenerated += responseText => {
-            logger.LogInformation($"Фоновый ответ от Host: {responseText}");
+            logger.LogInformation("Юки (фоновый ответ): {Response}", responseText);
             try {
                 ttsPlayer?.EnqueueText(responseText);
             }
             catch (Exception ex) {
-                logger.LogError(ex, "Ошибка при отправке фонового ответа в TTS");
+                logger.LogError(ex, "Юки: не удалось передать фоновый ответ в TTS");
             }
         };
     }

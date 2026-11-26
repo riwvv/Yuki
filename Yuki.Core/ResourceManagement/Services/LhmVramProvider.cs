@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using LibreHardwareMonitor.Hardware;
 using Yuki.Core.ResourceManagement.Contracts;
 
@@ -23,7 +23,7 @@ public class LhmVramProvider : IVramProvider, IGpuLoadProvider, IDisposable {
         _hw.Update();
 
         var sensor = _hw.Sensors.FirstOrDefault(x => x.SensorType == SensorType.SmallData && x.Name == "GPU Memory Free");
-        _logger.LogInformation($"Sensor: {sensor?.Name} - {sensor?.Value}");
+        _logger.LogDebug("Сенсор {Sensor}: {Value}", sensor?.Name, sensor?.Value);
 
         return sensor == null || !sensor.Value.HasValue ? throw new InvalidOperationException("Сенсор 'GPU Memory Free' не найден") : (long)sensor.Value;
     }
@@ -32,7 +32,7 @@ public class LhmVramProvider : IVramProvider, IGpuLoadProvider, IDisposable {
         _hw.Update();
 
         var sensor = _hw.Sensors.FirstOrDefault(x => x.SensorType == SensorType.Load && x.Name == "GPU Core");
-        _logger.LogInformation($"Sensor: {sensor?.Name} - {sensor?.Value}");
+        _logger.LogDebug("Сенсор {Sensor}: {Value}", sensor?.Name, sensor?.Value);
 
         return sensor == null || !sensor.Value.HasValue ? throw new InvalidOperationException("Сенсор 'GPU Core' не найден") : (float)sensor.Value;
     }

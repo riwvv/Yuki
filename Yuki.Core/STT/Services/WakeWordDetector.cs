@@ -67,7 +67,7 @@ public class WakeWordDetector(IOptions<WakeWordSettings> settings, ILogger<WakeW
             return (positiveProb > _threshold, positiveProb);
         }
         catch (Exception ex) {
-            logger.LogError($"Ошибка детекции: {ex.Message}");
+            logger.LogError(ex, "Wake word: ошибка детекции");
             return (false, 0f);
         }
     }

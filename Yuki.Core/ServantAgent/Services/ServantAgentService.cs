@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.SemanticKernel;
@@ -64,7 +64,7 @@ public sealed class ServantAgentService : IServantAgentService {
         try {
             var kernel = GetOrCreateKernel();
 
-            _logger.LogInformation($"Servant: начал работу над задачей - {taskDescription}");
+            _logger.LogInformation("Servant: начал задачу «{Task}»", taskDescription);
 
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             cts.CancelAfter(_taskTimeout);
@@ -77,7 +77,7 @@ public sealed class ServantAgentService : IServantAgentService {
 
             var resultText = string.IsNullOrWhiteSpace(result.Content) ? "Инструмент не вернул результат." : result.Content;
 
-            _logger.LogInformation($"Servant: завершил задачу. Результат: {resultText}");
+            _logger.LogInformation("Servant: задача завершена. Результат: {Result}", resultText);
             TaskCompleted?.Invoke(resultText);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) {
@@ -89,7 +89,7 @@ public sealed class ServantAgentService : IServantAgentService {
             TaskCompleted?.Invoke("Задача превысила допустимое время выполнения.");
         }
         catch (Exception ex) {
-            _logger.LogError(ex, "Ошибка при выполнении задачи Servant'ом");
+            _logger.LogError(ex, "Servant: задача завершилась ошибкой");
             TaskCompleted?.Invoke("Произошла ошибка при выполнении задачи.");
         }
         finally {
@@ -114,7 +114,7 @@ public sealed class ServantAgentService : IServantAgentService {
             _logger.LogInformation("Servant: инициализация Kernel с MCP");
 
             var tools = _mcpManager.GetAllTools();
-            _logger.LogInformation($"Servant: получено {tools.Count()} инструментов из MCP");
+            _logger.LogInformation("Servant: получено {Count} инструментов из MCP", tools.Count());
 
             var builder = Kernel.CreateBuilder();
             builder.Services.AddSingleton<IChatCompletionService>(_yukiChatCompletion);

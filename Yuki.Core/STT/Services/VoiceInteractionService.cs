@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Threading.Channels;
 using Yuki.Core.Configurations;
@@ -41,7 +41,7 @@ public class VoiceInteractionService(IWakeWordListener _wakeWordListener, IAudio
     private void OnWakeWordDetected(float probability) {
         if (_state != VoiceInteractionState.Idle) return;
 
-        _logger.LogInformation($"Wake word detected ({probability:F2}) - начинаем слушать");
+        _logger.LogInformation("Голос: ключевое слово обнаружено ({Probability:F2}), начинаю слушать", probability);
 
         _wakeWordListener.Pause();
         _vad.Reset();
@@ -89,6 +89,10 @@ public class VoiceInteractionService(IWakeWordListener _wakeWordListener, IAudio
             return;
         }
 
+        _logger.LogDebug(
+            "Голос: слушание завершено — речь={Speech}, длительность={Duration:0.0} с",
+            hasHeardSpeech, timeSinceListeningStarted.TotalSeconds);
+
         await FinishListeningAsync();
     }
 
@@ -99,6 +103,7 @@ public class VoiceInteractionService(IWakeWordListener _wakeWordListener, IAudio
         var transcript = _recognizer.GetFinalResult();
 
         if (string.IsNullOrWhiteSpace(transcript)) {
+            _logger.LogWarning("Голос: пустой текст распознавания — команда пропущена");
             SetState(VoiceInteractionState.Idle);
             return;
         }

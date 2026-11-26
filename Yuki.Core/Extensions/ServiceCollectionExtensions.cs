@@ -1,4 +1,4 @@
-﻿using BlackSharp.Core.Logging;
+using BlackSharp.Core.Logging;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -83,8 +83,10 @@ public static class ServiceCollectionExtensions {
             var gpuLayerResolver = sp.GetRequiredService<IGpuLayerResolver>();
             var logger = sp.GetRequiredService<ILogger<LlamaWeightsProvider>>();
             var gpuLayers = gpuLayerResolver.ResolveGpuLayers(modelPath, Convert.ToInt32(Math.Max(hostSettings.ContextSize, servantSettings.ContextSize)));
-            logger.LogInformation($"Resource manager: выделяю {gpuLayers} слоёв на GPU для Host");
-            return new LlamaWeightsProvider(modelPath, gpuLayers);
+            logger.LogInformation("LLM: модель {Model} — {Layers} слоёв на GPU", Path.GetFileName(modelPath), gpuLayers);
+            var provider = new LlamaWeightsProvider(modelPath, gpuLayers);
+            logger.LogInformation("LLM: веса загружены");
+            return provider;
         });
         services.AddSingleton<IMcpManager, McpManager>();
 

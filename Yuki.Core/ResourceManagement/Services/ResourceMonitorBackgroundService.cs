@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Yuki.Core.ResourceManagement.Contracts;
@@ -16,7 +16,7 @@ public class ResourceMonitorBackgroundService(IVramProvider _vramProvider, IGpuL
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(_settings.Value.PollIntervalSeconds));
         while (await timer.WaitForNextTickAsync(stoppingToken)) {
             try { await CheckAndReactAsync(stoppingToken); }
-            catch (Exception ex) { _logger.LogError(ex, "Ошибка в цикле мониторинга ресурсов"); }
+            catch (Exception ex) { _logger.LogError(ex, "Ресурсы: ошибка в цикле мониторинга"); }
         }
     }
 
@@ -24,6 +24,7 @@ public class ResourceMonitorBackgroundService(IVramProvider _vramProvider, IGpuL
         var freeVramMb = _vramProvider.GetFreeVramMb();
         var currentLayers = _hostAgent.CurrentGpuLayerCount;
         var newLayers = _gpuLayerResolver.RecomputeGpuLayers(freeVramMb, currentLayers);
+        _logger.LogDebug("Ресурсы: свободно {FreeMb} МБ VRAM, слоёв сейчас {Layers}, расчёт {TargetLayers}", freeVramMb, currentLayers, newLayers);
 
         var delta = Math.Abs(newLayers - currentLayers);
         var deficitSignal = newLayers < currentLayers && delta >= _settings.Value.MinLayerDeltaForReload;
@@ -44,7 +45,7 @@ public class ResourceMonitorBackgroundService(IVramProvider _vramProvider, IGpuL
 
         try {
             if (!await _servant.TryAcquireReloadLockAsync(TimeSpan.FromSeconds(2), ct)) {
-                _logger.LogInformation("Resource manager: Servant занят, откладываю reload на следующий poll");
+                _logger.LogInformation("Ресурсы: Servant занят, откладываю смену слоёв до следующей проверки");
                 return;
             }
 
@@ -53,13 +54,13 @@ public class ResourceMonitorBackgroundService(IVramProvider _vramProvider, IGpuL
                 : "нагрузка на видеокарту наконец спала, и можно вернуть себе больше мощности";
 
             try {
-                _logger.LogInformation($"Resource manager: подтверждена смена нагрузки, {currentLayers} => {newLayers} слоёв");
+                _logger.LogInformation("Ресурсы: смена нагрузки — {From} => {To} слоёв GPU", currentLayers, newLayers);
 
                 try {
                     await _hostAgent.ReloadEngineAsync(newLayers, ct);
                 }
                 catch (Exception ex) {
-                    _logger.LogError(ex, "Resource manager: reload упал");
+                    _logger.LogError(ex, "Ресурсы: reload не удался");
                     return;
                 }
             }
@@ -71,10 +72,10 @@ public class ResourceMonitorBackgroundService(IVramProvider _vramProvider, IGpuL
             _deficitStreak = _recoveryStreak = 0;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) {
-            _logger.LogDebug("Resource manager: reload отменён при остановке приложения");
+            _logger.LogDebug("Ресурсы: смена слоёв отменена при остановке приложения");
         }
         catch (Exception ex) {
-            _logger.LogError(ex, "Resource manager: ошибка при reload");
+            _logger.LogError(ex, "Ресурсы: ошибка при смене слоёв");
         }
         finally {
             _voice.EndBusy();
