@@ -2,7 +2,6 @@
   <Project Path="Yuki.Core.Tests/Yuki.Core.Tests.csproj" Id="c39590db-08bf-42ad-9f01-dd73bdd8c1b6" />
   <Project Path="Yuki.Core/Yuki.Core.csproj" Id="72d27ca9-71ef-4444-9042-5476e0290c16" />
   <Project Path="Yuki.Mcp.Browser/Yuki.Mcp.Browser.csproj" Id="b4d21987-d086-4c96-985b-ada65c6881c2" />
-  <Project Path="Yuki.Mcp.ConsoleTestClient/Yuki.Mcp.ConsoleTestClient.csproj" Id="0f50f2bc-e04c-4d0c-be42-f8fc55dc03df" />
   <Project Path="Yuki.Mcp.FileSystem/Yuki.Mcp.FileSystem.csproj" Id="529296ce-e255-45fd-aee1-64fdd35ec4c2" />
   <Project Path="Yuki.Mcp.FileSystem.Tests/Yuki.Mcp.FileSystem.Tests.csproj" Id="57e7c945-a84c-469f-b5a5-7ec92cf85d35" />
   <Project Path="Yuki.Mcp.MediaPlayer/Yuki.Mcp.MediaPlayer.csproj" Id="73600d9e-5bbb-4ef0-bde5-dab18d12bc5e" />
