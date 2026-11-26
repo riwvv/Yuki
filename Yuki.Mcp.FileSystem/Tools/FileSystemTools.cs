@@ -3,544 +3,254 @@ using ModelContextProtocol.Server;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using Yuki.Mcp.FileSystem.Resources;
 
 namespace Yuki.Mcp.FileSystem.Tools;
 
+/// <summary>
+/// MCP-инструменты для Whitelist-папок. Модель не может передать произвольный путь
+/// или расширение: всё проходит через <see cref="SafePaths"/>.
+/// </summary>
 internal class FileSystemTools(FileSystemResources _resources) {
-    private readonly List<string> _folderNames = ["downloads", "documents", "pictures", "videos", "music", "desktop"];
-    private readonly char[] invalidCharsForName = Path.GetInvalidFileNameChars();
-    private readonly Dictionary<string, List<string>> _fileTypes = new() {
-        { "текстовик", [".txt"] },
-        { "текстовый документ", [".txt"] },
-        { "фото", [".png", ".jpg", ".jpeg"] },
-        { "фотка", [".png", ".jpg", ".jpeg"] },
-        { "видео", [".mp4", ".mkv"] },
-        { "видос", [".mp4", ".mkv"] },
-        { "презентация", [".pptx", ".ppt", ".pdf"] },
-        { "ворд", [".docx"] },
-        { "документ", [".docx"] },
-        { "таблица", [".xlsx", ".ods", ".csv"] }
-    };
-
     [McpServerTool]
-    [Description("Получает данные о папке")]
-    public string GetInfoFolder([Description("Название одной из папок: downloads, documents, pictures, videos, music, desktop")] string folderName) {
-        if (!SpecialFolderValidation(folderName)) {
-            var error = new {
-                status = "ERROR",
-                cause = folderName,
-                description = $"Указано не корректное название папки, не соответствует поддерживаемому списку: {_folderNames}"
-            };
-
-            return JsonSerializer.Serialize(error);
-        }
+    [Description("Показывает файлы и папки внутри одной из разрешённых папок: downloads, documents, pictures, videos, music, desktop. Произвольные пути не принимаются.")]
+    public string GetInfoFolder(
+        [Description("Название одной из папок: downloads, documents, pictures, videos, music, desktop")] string folderName) {
+        if (!SafePaths.IsAllowedFolder(folderName))
+            return InvalidFolder(folderName);
 
         try {
-            var path = GetFullFolderPath(folderName);
+            var folderPath = SafePaths.GetFolderPath(folderName);
+            if (string.IsNullOrWhiteSpace(folderPath) || !Directory.Exists(folderPath))
+                return Error("folder_not_found", $"Папка {folderName} недоступна");
 
-            if (!Directory.Exists(path)) {
-                var error = new {
-                    status = "ERROR",
-                    cause = path,
-                    description = $"Папка {folderName} по пути {path} не найдена"
-                };
+            var entries = Directory.GetFileSystemEntries(folderPath);
+            var files = Directory.GetFiles(folderPath);
+            var directories = Directory.GetDirectories(folderPath);
+            var size = ConversionToTheOptimalUnit(GetDirectorySize(new DirectoryInfo(folderPath)));
 
-                return JsonSerializer.Serialize(error);
-            }
-
-            var dir = new DirectoryInfo(path);
-            var size = RecursivelyGettingTheDirectorySize(dir);
-            var stringSize = ConversionToTheOptimalUnit(size);
-
-            var result = new {
-                status = "DONE",
-                message = $"В папке {folderName} {Directory.GetFileSystemEntries(path).Length} объектов, размер {stringSize}",
-                totalObject = Directory.GetFileSystemEntries(path).Length,
-                amountFiles = Directory.GetFiles(path).Length,
-                files = Directory.GetFiles(path),
-                amountDirectories = Directory.GetDirectories(path).Length,
-                directories = Directory.GetDirectories(path),
-                totalSize = stringSize
-            };
-
-            return JsonSerializer.Serialize(result);
-        }
-        catch (ArgumentException ex) {
-            var error = new {
-                status = "ERROR",
-                cause = "ArgumentException",
-                description = ex.Message
-            };
-            return JsonSerializer.Serialize(error);
+            return Ok($"В папке {folderName} {entries.Length} объектов, размер {size}", new {
+                folder = folderName,
+                totalObject = entries.Length,
+                amountFiles = files.Length,
+                amountDirectories = directories.Length,
+                files = files.Select(Path.GetFileName).ToArray(),
+                directories = directories.Select(Path.GetFileName).ToArray(),
+                totalSize = size
+            });
         }
         catch (Exception ex) {
-            var error = new {
-                status = "ERROR",
-                cause = "Exception",
-                description = ex.Message
-            };
-            return JsonSerializer.Serialize(error);
+            return Error("folder_info_failed", $"Не удалось получить информацию о папке: {ex.GetType().Name}");
         }
     }
 
     [McpServerTool]
-    [Description("Открывает файл в указаной специальной папке")]
-    public string OpenFileInFolder([Description("Название одной из папок: downloads, documents, pictures, videos, music, desktop")] string folderName, [Description("Название файла")] string fileName, [Description("Тип файла, например: текстовик, презентация, фото, видео и т.д. (если указан, но не обязателен, иначе оставить как null)")] string? fileType = null) {
-        if (!SpecialFolderValidation(folderName)) {
-            var error = new {
-                status = "ERROR",
-                cause = folderName,
-                description = $"Указано не корректное название папки, не соответствует поддерживаемому списку: {_folderNames}"
-            };
-
-            return JsonSerializer.Serialize(error);
-        }
-        if (!FileNameValidation(fileName)) {
-            var error = new {
-                status = "ERROR",
-                cause = fileName,
-                description = $"Название файла не может быть пустым и не должно содержать недопустимые символы: {string.Join(", ", fileName.Where(c => invalidCharsForName.Contains(c)).Distinct())}"
-            };
-
-            return JsonSerializer.Serialize(error);
-        }
+    [Description("Открывает файл из разрешённой папки в программе по умолчанию. Разрешены только известные типы файлов (текст, фото, видео, документы); исполняемые файлы и скрипты открыть нельзя.")]
+    public string OpenFileInFolder(
+        [Description("Название одной из папок: downloads, documents, pictures, videos, music, desktop")] string folderName,
+        [Description("Название файла или его часть")] string fileName,
+        [Description("Тип файла: текстовик, фото, видео, презентация, ворд, таблица. Если не указан — ищет среди всех разрешённых типов")] string? fileType = null) {
+        if (!SafePaths.IsAllowedFolder(folderName))
+            return InvalidFolder(folderName);
+        if (!SafePaths.TryGetFileName(fileName, out _, out var nameError))
+            return Error("invalid_file_name", nameError!);
+        if (!SafePaths.TryGetExtensions(fileType, out _, out var typeError))
+            return Error("unsupported_file_type", typeError!);
 
         try {
-            string path = GetFullFolderPath(folderName);
-            string executableFilePath = SearchForRelevantFile(path, fileName, fileType);
+            var folderPath = SafePaths.GetFolderPath(folderName);
+            if (!SafePaths.TryFindFile(folderPath, fileName, fileType, out var foundPath, out var findError))
+                return Error("file_not_found", findError!);
 
-            if (string.IsNullOrEmpty(executableFilePath)) {
-                var error = new {
-                    status = "ERROR",
-                    cause = executableFilePath,
-                    description = $"Файл не найден"
-                };
-
-                return JsonSerializer.Serialize(error);
-            }
-
-            Process.Start(new ProcessStartInfo(executableFilePath) { UseShellExecute = true });
-
-            string name = GetFullFileNameFromPath(executableFilePath);
-            var result = new {
-                status = "DONE",
-                message = $"Файл {name} успешно открыт",
-                openedFile = name,
-                fullFilePath = executableFilePath
-            };
-
-            return JsonSerializer.Serialize(result);
+            return OpenInExplorer(foundPath);
         }
         catch (Exception ex) {
-            var error = new {
-                status = "ERROR",
-                cause = "Exception",
-                description = ex.Message
-            };
-
-            return JsonSerializer.Serialize(error);
+            return Error("open_failed", $"Не удалось открыть файл: {ex.GetType().Name}");
         }
     }
 
     [McpServerTool]
-    [Description("Перемещает файл из одной папки в другую (в рамках специальных папок), например: перемести текстовик тест из загрузок на рабочий стол")]
+    [Description("Перемещает файл между разрешёнными папками. Разрешены только известные типы файлов; произвольные пути не принимаются.")]
     public string MoveFileFromFolderToFolder(
-        [Description("Название начальной папки, одной из: downloads, documents, pictures, videos, music, desktop")] string startFolder,
-        [Description("Название конечной папки, одной из: downloads, documents, pictures, videos, music, desktop")] string finishFolder,
-        [Description("Название файла")] string fileName,
-        [Description("Тип файла, например: текстовик, презентация, фото, видео и т.д. (если указан, но не обязателен, иначе оставить null)")] string? fileType = null) {
-        if (!SpecialFolderValidation(startFolder)) {
-            var error = new {
-                status = "ERROR",
-                cause = startFolder,
-                description = $"Указано не корректное название папки, не соответствует поддерживаемому списку: {_folderNames}"
-            };
-
-            return JsonSerializer.Serialize(error);
-        }
-        if (!SpecialFolderValidation(finishFolder)) {
-            var error = new {
-                status = "ERROR",
-                cause = finishFolder,
-                description = $"Указано не корректное название папки, не соответствует поддерживаемому списку: {_folderNames}"
-            };
-
-            return JsonSerializer.Serialize(error);
-        }
-        if (!FileNameValidation(fileName)) {
-            var error = new {
-                status = "ERROR",
-                cause = fileName,
-                description = $"Название файла не может быть пустым и не должно содержать недопустимые символы: {string.Join(", ", fileName.Where(c => invalidCharsForName.Contains(c)).Distinct())}"
-            };
-
-            return JsonSerializer.Serialize(error);
-        }
+        [Description("Начальная папка: downloads, documents, pictures, videos, music, desktop")] string startFolder,
+        [Description("Конечная папка: downloads, documents, pictures, videos, music, desktop")] string finishFolder,
+        [Description("Название файла или его часть")] string fileName,
+        [Description("Тип файла: текстовик, фото, видео, презентация, ворд, таблица")] string? fileType = null) {
+        if (!SafePaths.IsAllowedFolder(startFolder))
+            return InvalidFolder(startFolder);
+        if (!SafePaths.IsAllowedFolder(finishFolder))
+            return InvalidFolder(finishFolder);
+        if (!SafePaths.TryGetFileName(fileName, out _, out var nameError))
+            return Error("invalid_file_name", nameError!);
+        if (!SafePaths.TryGetExtensions(fileType, out _, out var typeError))
+            return Error("unsupported_file_type", typeError!);
 
         try {
-            string movedFilePath = SearchForRelevantFile(GetFullFolderPath(startFolder), fileName, fileType);
+            var startPath = SafePaths.GetFolderPath(startFolder);
+            if (!SafePaths.TryFindFile(startPath, fileName, fileType, out var sourcePath, out var findError))
+                return Error("file_not_found", findError!);
 
-            if (string.IsNullOrEmpty(movedFilePath) || !File.Exists(movedFilePath)) {
-                return JsonSerializer.Serialize(new {
-                    status = "ERROR",
-                    cause = fileName,
-                    description = $"Файл '{fileName}' не найден в папке {startFolder}"
-                });
-            }
+            var fileNameOnly = Path.GetFileName(sourcePath);
+            var finishPath = SafePaths.GetFolderPath(finishFolder);
+            if (!SafePaths.TryResolveFileInBase(finishPath, fileNameOnly, out var destinationPath, out var pathError))
+                return Error("invalid_file_name", pathError!);
 
-            string foundFileName = GetFullFileNameFromPath(movedFilePath);
+            if (File.Exists(destinationPath))
+                return Error("already_exists", "Файл с таким названием уже существует в папке назначения");
 
-            string finishPath = GetFullFolderPath(finishFolder);
-            string finishFilePath = Path.Combine(finishPath, foundFileName);
+            File.SetAttributes(sourcePath, FileAttributes.Normal);
+            File.Move(sourcePath, destinationPath);
 
-            if (File.Exists(finishFilePath)) {
-                var error = new {
-                    status = "WARNING",
-                    cause = finishFilePath,
-                    description = "Файл с таким названием уже существует в папке назначения"
-                };
-
-                return JsonSerializer.Serialize(error);
-            }
-
-            File.SetAttributes(movedFilePath, FileAttributes.Normal);
-            File.Move(movedFilePath, finishFilePath);
-
-            var result = new {
-                status = "DONE",
-                message = $"Файл {foundFileName} успешно перемещён",
-                movedFile = foundFileName,
-                originalPath = movedFilePath,
-                finitePath = finishFilePath
-            };
-
-            return JsonSerializer.Serialize(result);
+            return Ok($"Файл {fileNameOnly} перемещён из {startFolder} в {finishFolder}", new {
+                file = fileNameOnly,
+                fromFolder = startFolder,
+                toFolder = finishFolder
+            });
         }
         catch (Exception ex) {
-            var error = new {
-                status = "ERROR",
-                cause = "Exception",
-                description = ex.Message
-            };
-
-            return JsonSerializer.Serialize(error);
+            return Error("move_failed", $"Не удалось переместить файл: {ex.GetType().Name}");
         }
     }
 
     [McpServerTool]
-    [Description("Создание файла в специальной папке с указанным типом (если не указан, по умолчанию текстовик)")]
-    public string CreateNewFileInSpecialFolder([Description("Название одной из специальных папок: downloads, documents, pictures, videos, music, desktop")] string folderName,
-        [Description("Название файла (без расширения)")] string fileName,
-        [Description("Тип файла, например: текстовик, презентация, фото, видео и т.д.")] string? fileType = null) {
-        if (!SpecialFolderValidation(folderName)) {
-            var error = new {
-                status = "ERROR",
-                cause = folderName,
-                description = $"Некорректное название папки. Поддерживаемые: {string.Join(", ", _folderNames)}"
-            };
-
-            return JsonSerializer.Serialize(error);
-        }
-
-        if (!FileNameValidation(fileName)) {
-            var error = new {
-                status = "ERROR",
-                cause = fileName,
-                description = $"Название файла не может быть пустым и не должно содержать недопустимые символы: {string.Join(", ", fileName.Where(c => invalidCharsForName.Contains(c)).Distinct())}"
-            };
-
-            return JsonSerializer.Serialize(error);
-        }
+    [Description("Создаёт пустой файл в разрешённой папке. Тип файла должен быть из whitelist (текстовик, фото, видео, презентация, ворд, таблица); по умолчанию .txt.")]
+    public string CreateNewFileInSpecialFolder(
+        [Description("Папка: downloads, documents, pictures, videos, music, desktop")] string folderName,
+        [Description("Название файла без расширения")] string fileName,
+        [Description("Тип файла: текстовик, фото, видео, презентация, ворд, таблица")] string? fileType = null) {
+        if (!SafePaths.IsAllowedFolder(folderName))
+            return InvalidFolder(folderName);
+        if (!SafePaths.TryGetFileName(fileName, out var validatedName, out var nameError))
+            return Error("invalid_file_name", nameError!);
+        if (!SafePaths.TryGetExtension(fileType, out var extension, out var typeError))
+            return Error("unsupported_file_type", typeError!);
 
         try {
-            string primaryPath = GetFullFolderPath(folderName);
+            var folderPath = SafePaths.GetFolderPath(folderName);
+            if (string.IsNullOrWhiteSpace(folderPath) || !Directory.Exists(folderPath))
+                return Error("folder_not_found", $"Папка {folderName} недоступна");
 
-            if (!Directory.Exists(primaryPath)) {
-                var error = new {
-                    status = "ERROR",
-                    cause = primaryPath,
-                    description = $"Папка {folderName} не найдена по пути {primaryPath}"
-                };
+            var fullFileName = Path.GetFileNameWithoutExtension(validatedName) + extension;
+            if (!SafePaths.TryResolveFileInBase(folderPath, fullFileName, out var fullPath, out var pathError))
+                return Error("invalid_file_name", pathError!);
 
-                return JsonSerializer.Serialize(error);
-            }
+            if (File.Exists(fullPath))
+                return Error("already_exists", $"Файл '{fullFileName}' уже существует в папке {folderName}");
 
-            string extension;
-            if (!string.IsNullOrEmpty(fileType)) {
-                if (TryGetRecognizedFileType(fileType, out string? resultType))
-                    extension = resultType!;
-                else
-                    extension = fileType.StartsWith(".") ? fileType : "." + fileType;
-            }
-            else
-                extension = _fileTypes.TryGetValue("текстовик", out var types) && types.Count != 0 ? types.First() : ".txt";
+            using (File.Create(fullPath)) { }
 
-            string cleanFileName = Path.GetFileNameWithoutExtension(fileName);
-            string fullFileName = cleanFileName + extension;
-            string fullPath = Path.Combine(primaryPath, fullFileName);
-
-            if (File.Exists(fullPath)) {
-                var warning = new {
-                    status = "WARNING",
-                    cause = fullPath,
-                    description = $"Файл '{fullFileName}' уже существует в папке {folderName}"
-                };
-
-                return JsonSerializer.Serialize(warning);
-            }
-
-            using FileStream fs = File.Create(fullPath);
-
-            var result = new {
-                status = "DONE",
-                message = $"Файл '{fullFileName}' успешно создан в папке '{folderName}'",
-                name = cleanFileName,
-                folder = primaryPath,
-                fullFileName = fullFileName,
-                fullFilePath = fullPath,
+            return Ok($"Файл '{fullFileName}' создан в папке {folderName}", new {
+                name = Path.GetFileNameWithoutExtension(validatedName),
+                folder = folderName,
+                fullFileName,
                 fileType = extension
-            };
-
-            return JsonSerializer.Serialize(result);
+            });
         }
-        catch (UnauthorizedAccessException ex) {
-            var error = new {
-                status = "ERROR",
-                cause = "AccessDenied",
-                description = $"Нет прав на создание файла в папке {folderName}: {ex.Message}"
-            };
-            return JsonSerializer.Serialize(error);
+        catch (UnauthorizedAccessException) {
+            return Error("access_denied", $"Нет прав на создание файла в папке {folderName}");
         }
-        catch (IOException ex) {
-            var error = new {
-                status = "ERROR",
-                cause = "IOError",
-                description = $"Ошибка ввода-вывода: {ex.Message}"
-            };
-            return JsonSerializer.Serialize(error);
+        catch (IOException) {
+            return Error("io_error", "Ошибка ввода-вывода при создании файла");
         }
         catch (Exception ex) {
-            var error = new {
-                status = "ERROR",
-                cause = "UnexpectedError",
-                description = $"Произошла непредвиденная ошибка при создании файла: {ex.Message}"
-            };
-            return JsonSerializer.Serialize(error);
+            return Error("create_failed", $"Не удалось создать файл: {ex.GetType().Name}");
         }
     }
 
     [McpServerTool]
-    [Description("Переименование существующего файла")]
+    [Description("Переименовывает существующий файл внутри разрешённой папки. Расширение сохраняется; произвольные пути не принимаются.")]
     public string RenameExistsFile(
-        [Description("Название одной из специальных папок: downloads, documents, pictures, videos, music, desktop")] string folderName,
-        [Description("Старое название файла (без расширения)")] string oldFileName,
-        [Description("Новое название файла (без расширения)")] string newFileName,
-        [Description("Тип файла, например: текстовик, презентация, фото, видео и т.д.")] string? fileType = null) {
-        if (!SpecialFolderValidation(folderName)) {
-            var error = new {
-                status = "ERROR",
-                cause = folderName,
-                description = $"Некорректное название папки. Поддерживаемые: {string.Join(", ", _folderNames)}"
-            };
-
-            return JsonSerializer.Serialize(error);
-        }
-        if (!FileNameValidation(oldFileName)) {
-            var error = new {
-                status = "ERROR",
-                cause = oldFileName,
-                description = $"Название файла не может быть пустым и не должно содержать недопустимые символы: {string.Join(", ", oldFileName.Where(c => invalidCharsForName.Contains(c)).Distinct())}"
-            };
-
-            return JsonSerializer.Serialize(error);
-        }
-        if (!FileNameValidation(newFileName)) {
-            var error = new {
-                status = "ERROR",
-                cause = newFileName,
-                description = $"Название файла не может быть пустым и не должно содержать недопустимые символы: {string.Join(", ", newFileName.Where(c => invalidCharsForName.Contains(c)).Distinct())}"
-            };
-
-            return JsonSerializer.Serialize(error);
-        }
+        [Description("Папка: downloads, documents, pictures, videos, music, desktop")] string folderName,
+        [Description("Старое название файла или его часть")] string oldFileName,
+        [Description("Новое название файла без расширения")] string newFileName,
+        [Description("Тип файла: текстовик, фото, видео, презентация, ворд, таблица")] string? fileType = null) {
+        if (!SafePaths.IsAllowedFolder(folderName))
+            return InvalidFolder(folderName);
+        if (!SafePaths.TryGetFileName(oldFileName, out _, out var oldNameError))
+            return Error("invalid_file_name", oldNameError!);
+        if (!SafePaths.TryGetFileName(newFileName, out var validatedNewName, out var newNameError))
+            return Error("invalid_file_name", newNameError!);
+        if (!SafePaths.TryGetExtensions(fileType, out _, out var typeError))
+            return Error("unsupported_file_type", typeError!);
 
         try {
-            string path = GetFullFolderPath(folderName);
-            string oldFullPath = SearchForRelevantFile(path, oldFileName, fileType);
-            if (string.IsNullOrEmpty(oldFullPath) || !File.Exists(oldFullPath)) {
-                var error = new {
-                    status = "ERROR",
-                    cause = oldFullPath,
-                    description = $"Файла по пути {oldFullPath} не существует, либо путь пустой"
-                };
+            var folderPath = SafePaths.GetFolderPath(folderName);
+            if (!SafePaths.TryFindFile(folderPath, oldFileName, fileType, out var oldFullPath, out var findError))
+                return Error("file_not_found", findError!);
 
-                return JsonSerializer.Serialize(error);
-            }
+            var extension = Path.GetExtension(oldFullPath);
+            var newFullFileName = Path.GetFileNameWithoutExtension(validatedNewName) + extension;
+            if (!SafePaths.TryResolveFileInBase(folderPath, newFullFileName, out var newFullPath, out var pathError))
+                return Error("invalid_file_name", pathError!);
 
-            string oldExtension = Path.GetExtension(oldFullPath);
-            string newFullPath = Path.Combine(path, newFileName + oldExtension);
-
-            if (File.Exists(newFullPath)) {
-                var error = new {
-                    status = "ERROR",
-                    cause = newFullPath,
-                    description = $"Файл с названием {newFileName} уже существует по пути {newFullPath}"
-                };
-
-                return JsonSerializer.Serialize(error);
-            }
+            if (File.Exists(newFullPath))
+                return Error("already_exists", $"Файл '{newFullFileName}' уже существует в папке {folderName}");
 
             File.Move(oldFullPath, newFullPath);
 
-            var result = new {
-                status = "DONE",
-                message = $"Файл {oldFileName} успешно переименован на {newFileName}",
-                oldName = oldFileName,
-                newName = newFileName,
-                oldPath = oldFullPath,
-                newPath = newFullPath
-            };
-
-            return JsonSerializer.Serialize(result);
+            return Ok($"Файл переименован на {newFullFileName}", new {
+                oldName = Path.GetFileName(oldFullPath),
+                newName = newFullFileName,
+                folder = folderName
+            });
         }
         catch (Exception ex) {
-            var error = new {
-                status = "ERROR",
-                cause = "UnexpectedError",
-                description = $"Произошла непредвиденная ошибка при создании файла: {ex.Message}"
-            };
-            return JsonSerializer.Serialize(error);
+            return Error("rename_failed", $"Не удалось переименовать файл: {ex.GetType().Name}");
         }
     }
 
     [McpServerTool]
-    [Description("Считывает и возвращает текстовое содержимое файла из специальной папки")]
+    [Description("Считывает текстовое содержимое файла из разрешённой папки. Разрешены только текстовые файлы (.txt, .csv, .log, .md).")]
     public string ReadFileContent(
-        [Description("Название одной из папок: downloads, documents, pictures, videos, music, desktop")] string folderName,
+        [Description("Папка: downloads, documents, pictures, videos, music, desktop")] string folderName,
         [Description("Название файла")] string fileName) {
         try {
-            string content = _resources.ReadTextFile(folderName, fileName);
-
-            return JsonSerializer.Serialize(new {
-                status = "done",
-                message = $"Файл {fileName} успешно прочитан",
-                content = content,
-                folder = folderName
+            var content = _resources.ReadTextFile(folderName, fileName);
+            return Ok($"Файл {fileName} прочитан", new {
+                file = fileName,
+                folder = folderName,
+                content
             });
         }
         catch (McpException ex) {
-            return JsonSerializer.Serialize(new {
-                status = "error",
-                cause = "ReadError",
-                description = ex.Message
-            });
+            return Error("read_error", ex.Message);
+        }
+        catch (Exception) {
+            return Error("read_error", "Не удалось прочитать файл");
+        }
+    }
+
+    private static string OpenInExplorer(string path) {
+        try {
+            // Явно explorer.exe + ArgumentList: путь не склеивается в строку
+            // и не может быть интерпретирован как дополнительные аргументы.
+            var startInfo = new ProcessStartInfo("explorer.exe") {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WindowStyle = ProcessWindowStyle.Hidden
+            };
+            startInfo.ArgumentList.Add(path);
+
+            using var process = Process.Start(startInfo);
+            if (process is null)
+                return Error("process_failed", "Не удалось открыть файл");
+
+            var name = Path.GetFileName(path);
+            return Ok($"Файл {name} открыт", new { file = name });
         }
         catch (Exception ex) {
-            return JsonSerializer.Serialize(new {
-                status = "error",
-                cause = "Excaption",
-                description = ex.Message
-            });
+            return Error("process_failed", $"Не удалось открыть файл: {ex.GetType().Name}");
         }
     }
 
-    private bool FileNameValidation(string name) => !string.IsNullOrEmpty(name) && (!name.Any(c => invalidCharsForName.Contains(c)));
+    private static string InvalidFolder(string? folderName)
+        => Error("invalid_folder", $"Недопустимая папка. Разрешены: {string.Join(", ", SafePaths.FolderNames)}");
 
-    private bool TryGetRecognizedFileType(string? type, out string? outputType) {
-        outputType = null;
+    private static string Ok(string message, object? data = null)
+        => JsonSerializer.Serialize(new { status = "done", message, data });
 
-        if (string.IsNullOrWhiteSpace(type))
-            return false;
-
-        type = type.Trim().ToLower();
-
-        foreach (var kvp in _fileTypes) {
-            if (type == kvp.Key) {
-                outputType = kvp.Value.FirstOrDefault();
-                return outputType != null;
-            }
-        }
-
-        return false;
-    }
-
-    private List<string>? GetRecognizedFileType(string? type = null) {
-        if (type == null || string.IsNullOrWhiteSpace(type))
-            return null;
-
-        type = type.ToLower();
-        foreach (var (key, value) in _fileTypes) {
-            if (type == key)
-                return value;
-        }
-
-        return null;
-    }
-
-    private string SearchForRelevantFile(string path, string targetFileName, string? targetFileType = null) {
-        List<string> files = [.. Directory.GetFiles(path)];
-
-        List<string>? targetFileTypes = GetRecognizedFileType(targetFileType);
-        var escapedName = Regex.Escape(FormattingFileName(targetFileName));
-        string pattern = targetFileTypes == null
-            ? @$"{escapedName}(\w*)"
-            : @$"{escapedName}(\w*)({string.Join("|", targetFileTypes!.Select(Regex.Escape))})";
-        Regex regex = new($"^{pattern}", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-        Dictionary<string, double> results = [];
-
-        for (int i = 0; i < files.Count; i++) {
-            string fileName = files[i][(path.Length + 1)..];
-            if (regex.IsMatch(fileName))
-                results[files[i]] = GetPercentageOfRelevantSimilarity(fileName, targetFileName);
-        }
-
-        return results.Count == 0 ? string.Empty : results.OrderByDescending(x => x.Value).First().Key;
-    }
-
-    private bool SpecialFolderValidation(string folder) => !string.IsNullOrWhiteSpace(folder) && _folderNames.Contains(folder.ToLower());
-
-    private static string FormattingFileName(string target) {
-        int lastDot = target.LastIndexOf('.');
-        return lastDot == -1 ? target : target[..lastDot];
-    }
-
-    private static string GetFullFileNameFromPath(string path) {
-        int lastSlash = path.LastIndexOf(@"\");
-        return path[(lastSlash + 1)..];
-    }
-
-    private static double GetPercentageOfRelevantSimilarity(string source, string target) {
-        int distance = GetLevenshteinDistanceForDesiredFileName(source, target);
-        int maxLength = Math.Max(source.Length, target.Length);
-
-        if (maxLength == 0) return 100.0d;
-
-        double result = (1.0d - (Convert.ToDouble(distance) / maxLength)) * 100.0d;
-
-        return result;
-    }
-
-    private static int GetLevenshteinDistanceForDesiredFileName(string source, string target) {
-        if (string.IsNullOrEmpty(source)) return string.IsNullOrEmpty(target) ? 0 : target.Length;
-        if (string.IsNullOrEmpty(target)) return source.Length;
-
-        int[,] d = new int[source.Length + 1, target.Length + 1];
-
-        for (int i = 0; i <= source.Length; d[i, 0] = i++) ;
-        for (int j = 0; j <= target.Length; d[0, j] = j++) ;
-
-        for (int i = 1; i <= source.Length; i++) {
-            for (int j = 1; j <= target.Length; j++) {
-                int cost = (target[j - 1] == source[i - 1]) ? 0 : 1;
-                d[i, j] = Math.Min(Math.Min(d[i - 1, j] + 1, d[i, j - 1] + 1), d[i - 1, j - 1] + cost);
-            }
-        }
-
-        return d[source.Length, target.Length];
-    }
+    private static string Error(string cause, string description)
+        => JsonSerializer.Serialize(new { status = "error", cause, description });
 
     private static string ConversionToTheOptimalUnit(long bytes) => bytes switch {
         < 1000 => $"{bytes} байт",
@@ -552,29 +262,31 @@ internal class FileSystemTools(FileSystemResources _resources) {
         _ => $"{bytes} байт"
     };
 
-    private static long RecursivelyGettingTheDirectorySize(DirectoryInfo dir) {
+    private static long GetDirectorySize(DirectoryInfo directory, int depth = 0) {
+        if (depth > 16)
+            return 0;
+
         long size = 0;
         try {
-            size = dir.GetFiles().Sum(file => file.Length);
-        }
-        catch (UnauthorizedAccessException) { }
+            // Не ходим по junction/symlink — иначе можно выйти за пределы папки.
+            if ((directory.Attributes & FileAttributes.ReparsePoint) != 0)
+                return 0;
 
-        foreach (var subDir in dir.GetDirectories()) {
-            try {
-                size += RecursivelyGettingTheDirectorySize(subDir);
-            }
-            catch (UnauthorizedAccessException) { }
+            size = directory.GetFiles().Sum(file => file.Length);
         }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException) {
+            // Часть файлов может быть недоступна — это нормально.
+        }
+
+        foreach (var subDirectory in directory.GetDirectories()) {
+            try {
+                size += GetDirectorySize(subDirectory, depth + 1);
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException) {
+                // То же самое для вложенных папок.
+            }
+        }
+
         return size;
     }
-
-    private static string GetFullFolderPath(string folderName) => folderName.ToLower() switch {
-        "downloads" => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads"),
-        "documents" => Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-        "desktop" => Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
-        "videos" => Environment.GetFolderPath(Environment.SpecialFolder.MyVideos),
-        "pictures" => Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
-        "music" => Environment.GetFolderPath(Environment.SpecialFolder.MyMusic),
-        _ => throw new ArgumentException($"Неизвестный тип папки: {folderName}")
-    };
 }
