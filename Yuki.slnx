@@ -6,5 +6,6 @@
   <Project Path="Yuki.Mcp.FileSystem/Yuki.Mcp.FileSystem.csproj" Id="529296ce-e255-45fd-aee1-64fdd35ec4c2" />
   <Project Path="Yuki.Mcp.MediaPlayer/Yuki.Mcp.MediaPlayer.csproj" Id="73600d9e-5bbb-4ef0-bde5-dab18d12bc5e" />
   <Project Path="Yuki.Mcp.SystemCommand/Yuki.Mcp.SystemCommand.csproj" Id="85f8da66-1405-419d-9cb5-be8cdff5afd8" />
+  <Project Path="Yuki.Mcp.SystemCommand.Tests/Yuki.Mcp.SystemCommand.Tests.csproj" Id="506ad8a1-4398-41ae-a595-586081cb06d5" />
   <Project Path="Yuki/Yuki.csproj" />
 </Solution>
