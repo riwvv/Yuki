@@ -127,7 +127,9 @@ public sealed class YukiChatCompletion : IYukiChatCompletion {
                 return Fail("Модель не сформировала корректный ответ.");
             }
 
-            _logger?.LogInformation("Servant: задача выполнена за {Iterations} итераций", iteration + 1);
+            var iterations = iteration + 1;
+            _logger?.LogInformation("Servant: задача выполнена за {Iterations} {Noun}",
+                iterations, Plural(iterations, "итерацию", "итерации", "итераций"));
             return [new ChatMessageContent(AuthorRole.Assistant, finalText)];
         }
 
@@ -200,6 +202,14 @@ public sealed class YukiChatCompletion : IYukiChatCompletion {
 
     private static string Compact(string text, int maxLength)
         => text.Length <= maxLength ? text : text[..maxLength] + "…";
+
+    private static string Plural(int count, string one, string few, string many) {
+        var mod10 = count % 10;
+        var mod100 = count % 100;
+        if (mod10 == 1 && mod100 != 11) return one;
+        if (mod10 is >= 2 and <= 4 && (mod100 < 12 || mod100 > 14)) return few;
+        return many;
+    }
 
     private InferenceParams BuildInferenceParams(LLamaSharpPromptExecutionSettings settings) {
         var antiPrompts = new List<string>(_options.AntiPrompts);
