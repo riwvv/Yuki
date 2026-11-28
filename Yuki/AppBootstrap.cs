@@ -95,7 +95,9 @@ public static class AppBootstrap {
         hostAgent.ResponseGenerated += responseText => {
             logger.LogInformation("Юки (фоновый ответ): {Response}", responseText);
             try {
-                ttsPlayer?.EnqueueText(responseText);
+                // Ответ по отчёту Servant'а приходит уже после EndBusy —
+                // помечаем его, чтобы окно повторного обращения ждало озвучку.
+                ttsPlayer?.EnqueueReport(responseText);
             }
             catch (Exception ex) {
                 logger.LogError(ex, "Юки: не удалось передать фоновый ответ в TTS");

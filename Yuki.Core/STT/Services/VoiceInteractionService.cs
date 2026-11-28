@@ -27,21 +27,44 @@ public class VoiceInteractionService(
     private CancellationTokenSource? _listeningCts;
     private CancellationTokenSource? _followUpCts;
     private bool _followUpArmed;
+    private bool _followUpListening;
+    private bool _sessionActive;
 
-    public void Start() => _wakeWordListener.WakeWordDetected += OnWakeWordDetected;
+    // Окно открывается только когда в очереди TTS нет ни одной реплики
+    // и не ожидается ответ по уже полученному отчёту Servant'а.
+    private int _speechInFlight;
+    private bool _reportExpected;
+
+    public void Start() {
+        _wakeWordListener.WakeWordDetected += OnWakeWordDetected;
+        _tts.SpeechQueued += OnSpeechQueued;
+        _tts.ReportQueued += OnReportQueued;
+        _tts.SpeechCompleted += OnSpeechCompleted;
+        _servant.TaskCompleted += OnServantTaskCompletedForFollowUp;
+    }
 
     public void Stop() {
         _wakeWordListener.WakeWordDetected -= OnWakeWordDetected;
+        _tts.SpeechQueued -= OnSpeechQueued;
+        _tts.ReportQueued -= OnReportQueued;
+        _tts.SpeechCompleted -= OnSpeechCompleted;
+        _servant.TaskCompleted -= OnServantTaskCompletedForFollowUp;
         _audioCapture.AudioAvailable -= OnAudioChunkReceived;
         CancelFollowUp();
         _listeningCts?.Cancel();
         _audioChannel = null;
+        _sessionActive = false;
+        _speechInFlight = 0;
+        _reportExpected = false;
     }
 
     public bool TryBeginBusy() {
         if (_state != VoiceInteractionState.Idle) return false;
 
         CancelFollowUp();
+        _sessionActive = true;
+        _speechInFlight = 0;
+        _reportExpected = false;
         SetState(VoiceInteractionState.Processing);
         return true;
     }
@@ -57,7 +80,45 @@ public class VoiceInteractionService(
     public void EndBusy() {
         SetState(VoiceInteractionState.Idle);
         ResumeWakeWord();
-        ArmFollowUp();
+
+        // Само окно откроется только когда WaitForFollowUpAsync увидит тишину:
+        // TTS пуст, Servant свободен и ожидание отчёта снято.
+        if (_sessionActive)
+            ArmFollowUp();
+    }
+
+    private void OnSpeechQueued() {
+        _speechInFlight++;
+        _logger.LogInformation("Голос: реплика передана в TTS — повторное обращение отложено");
+        CancelFollowUp();
+    }
+
+    private void OnReportQueued() {
+        // Только ответ по отчёту снимает ожидание. Обычная реплика «Окей, сейчас...»
+        // может уйти в TTS позже быстрого Servant'а и не должна его снимать.
+        _reportExpected = false;
+        _speechInFlight++;
+        _logger.LogInformation("Голос: ответ по отчёту передан в TTS");
+        CancelFollowUp();
+    }
+
+    private void OnServantTaskCompletedForFollowUp(string _) {
+        _reportExpected = true;
+        _logger.LogInformation("Голос: отчёт Servant'а получен — жду его озвучку");
+        CancelFollowUp();
+    }
+
+    private void OnSpeechCompleted() {
+        if (_speechInFlight > 0)
+            _speechInFlight--;
+
+        if (_speechInFlight > 0 || _reportExpected)
+            return;
+
+        if (_sessionActive && _state == VoiceInteractionState.Idle && _servant.IsIdle) {
+            _logger.LogInformation("Голос: озвучка завершена — открываю окно повторного обращения");
+            ArmFollowUp();
+        }
     }
 
     private void OnWakeWordDetected(float probability) {
@@ -88,6 +149,16 @@ public class VoiceInteractionService(
         _followUpCts?.Cancel();
         _followUpCts?.Dispose();
         _followUpCts = null;
+
+        if (_followUpListening) {
+            _followUpListening = false;
+            _listeningCts?.Cancel();
+            _listeningCts = null;
+            if (_state == VoiceInteractionState.Listening) {
+                SetState(VoiceInteractionState.Idle);
+                ResumeWakeWord();
+            }
+        }
     }
 
     private async Task WaitForFollowUpAsync(CancellationToken ct) {
@@ -102,7 +173,8 @@ public class VoiceInteractionService(
             DateTime? quietSince = null;
 
             while (DateTime.UtcNow < deadline) {
-                var quiet = !_tts.IsSpeaking && _servant.IsIdle;
+                var quiet = _speechInFlight == 0 && !_reportExpected &&
+                            !_tts.IsSpeaking && _servant.IsIdle;
                 quietSince = quiet ? quietSince ?? DateTime.UtcNow : null;
 
                 if (quietSince.HasValue && DateTime.UtcNow - quietSince.Value >= TimeSpan.FromMilliseconds(quietMs))
@@ -114,7 +186,8 @@ public class VoiceInteractionService(
             if (ct.IsCancellationRequested || !_followUpArmed)
                 return;
 
-            if (_state != VoiceInteractionState.Idle || _tts.IsSpeaking || !_servant.IsIdle) {
+            if (_state != VoiceInteractionState.Idle || _speechInFlight > 0 || _reportExpected ||
+                _tts.IsSpeaking || !_servant.IsIdle) {
                 _logger.LogDebug("Голос: окно повторного обращения не открыто — Юки ещё говорит или выполняет задачу");
                 return;
             }
@@ -132,6 +205,7 @@ public class VoiceInteractionService(
         _wakeWordListener.Pause();
         _vad.Reset();
         _recognizer.Reset();
+        _followUpListening = isFollowUp;
 
         _audioChannel = Channel.CreateUnbounded<float[]>();
         _listeningCts = followUpToken.CanBeCanceled
@@ -189,6 +263,7 @@ public class VoiceInteractionService(
     }
 
     private async Task FinishListeningAsync(bool isFollowUp, bool hasHeardSpeech) {
+        _followUpListening = false;
         _audioCapture.AudioAvailable -= OnAudioChunkReceived;
         _audioChannel = null;
 
@@ -206,6 +281,7 @@ public class VoiceInteractionService(
         }
 
         _followUpArmed = false;
+        _sessionActive = true;
         SetState(VoiceInteractionState.Processing);
 
         if (RequestReady == null) {
@@ -221,6 +297,8 @@ public class VoiceInteractionService(
     }
 
     private void CloseSession() {
+        _sessionActive = false;
+        _followUpListening = false;
         SetState(VoiceInteractionState.Idle);
         ResumeWakeWord();
     }

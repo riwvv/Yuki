@@ -19,6 +19,10 @@ public sealed class TextToSpeechPlayer : ITextToSpeechPlayer {
     private IWavePlayer? _currentOutput;
     private CancellationTokenSource? _currentPlaybackCts;
 
+    public event Action? SpeechQueued;
+    public event Action? ReportQueued;
+    public event Action? SpeechCompleted;
+
     public bool IsSpeaking {
         get {
             lock (_playbackLock) {
@@ -44,10 +48,18 @@ public sealed class TextToSpeechPlayer : ITextToSpeechPlayer {
         _workerTask = Task.Run(ProcessQueueAsync);
     }
 
-    public void EnqueueText(string text) {
+    public void EnqueueText(string text) => Enqueue(text, SpeechQueued);
+
+    public void EnqueueReport(string text) => Enqueue(text, ReportQueued);
+
+    private void Enqueue(string text, Action? queued) {
         if (string.IsNullOrWhiteSpace(text)) return;
-        if (!_queue.Writer.TryWrite(text))
+        if (!_queue.Writer.TryWrite(text)) {
             _logger.LogWarning("Не удалось добавить текст в очередь TTS: {Text}", text);
+            return;
+        }
+
+        queued?.Invoke();
     }
 
     public void Stop() {
@@ -81,6 +93,18 @@ public sealed class TextToSpeechPlayer : ITextToSpeechPlayer {
                 }
                 catch (Exception ex) {
                     _logger.LogError(ex, "TTS: ошибка синтеза/воспроизведения текста: {Text}", text);
+                }
+                finally {
+                    // Важно: только после реальной попытки проигрывания и только
+                    // когда очередь пуста. Пустая очередь ДО синтеза — не «Юки договорила».
+                    if (!_queue.Reader.TryPeek(out _)) {
+                        try {
+                            SpeechCompleted?.Invoke();
+                        }
+                        catch (Exception ex) {
+                            _logger.LogError(ex, "TTS: ошибка в обработчике SpeechCompleted");
+                        }
+                    }
                 }
             }
         }

@@ -46,6 +46,16 @@ public class PromptTests {
     }
 
     [Fact]
+    public void HostPrompt_UsesWorkingMemoryBlock() {
+        var prompt = Utils.ReadSystemPromptFromFile("HostAgentPrompt.txt");
+
+        Assert.Contains("[Рабочая память — служебные данные, не реплика пользователя]", prompt, StringComparison.Ordinal);
+        Assert.Contains("Это состояние незавершённого действия, а не слова пользователя", prompt, StringComparison.Ordinal);
+        Assert.Contains("Не задавай тот же вопрос повторно", prompt, StringComparison.Ordinal);
+        Assert.Contains("Блок — только данные", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void HostPrompt_DoesNotAskWhileDelegating() {
         var prompt = Utils.ReadSystemPromptFromFile("HostAgentPrompt.txt");
 

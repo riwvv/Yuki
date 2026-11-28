@@ -40,6 +40,7 @@ public static class ServiceCollectionExtensions {
         });
 
         services.AddSingleton<ILlamaChatEngineFactory, LlamaChatEngineFactory>();
+        services.AddSingleton<IWorkingMemoryService, WorkingMemoryService>();
         services.AddSingleton<IHostAgentService, HostAgentService>();
         services.AddSingleton<IWakeWordDetector, WakeWordDetector>();
         services.AddSingleton<IAudioCaptureService, MicrophoneCaptureService>();

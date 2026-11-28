@@ -105,6 +105,64 @@ public class VoiceInteractionServiceTests {
         Assert.Equal(VoiceInteractionState.Idle, service.State);
     }
 
+    [Fact]
+    public async Task FollowUp_OpensOnlyAfterReportSpeechCompleted() {
+        var wake = new FakeWakeWordListener();
+        var tts = new FakeTts();
+        var servant = new FakeServant();
+        var service = Create(wake: wake, tts: tts, servant: servant);
+        service.Start();
+
+        Assert.True(service.TryBeginBusy());
+        tts.RaiseQueued(); // «Окей, сейчас сверну»
+        tts.RaiseCompleted();
+        service.EndBusy();
+        Assert.True(await WaitUntilAsync(() => service.State == VoiceInteractionState.Listening, TimeSpan.FromSeconds(2)));
+
+        // Пришёл отчёт — уже открытое окно закрывается и не открывается
+        // до тех пор, пока ответ по отчёту не будет озвучен.
+        servant.IsIdle = false;
+        servant.RaiseCompleted("Все окна свернуты");
+        servant.IsIdle = true;
+        Assert.True(await WaitUntilAsync(() => service.State == VoiceInteractionState.Idle, TimeSpan.FromSeconds(2)));
+
+        tts.RaiseReportQueued(); // «Все окна свернуты, как ты и просил»
+        await Task.Delay(300);
+        Assert.Equal(VoiceInteractionState.Idle, service.State);
+
+        tts.RaiseCompleted();
+        Assert.True(await WaitUntilAsync(() => service.State == VoiceInteractionState.Listening, TimeSpan.FromSeconds(2)));
+    }
+
+    [Fact]
+    public async Task InitialSpeechCompletion_DoesNotOpenWindow_WhileReportExpected() {
+        var wake = new FakeWakeWordListener();
+        var tts = new FakeTts();
+        var servant = new FakeServant();
+        var service = Create(wake: wake, tts: tts, servant: servant);
+        service.Start();
+
+        Assert.True(service.TryBeginBusy());
+        tts.RaiseQueued(); // первая реплика ещё в TTS
+        service.EndBusy();
+
+        servant.IsIdle = false;
+        servant.RaiseCompleted("Все окна свернуты");
+        servant.IsIdle = true;
+
+        tts.RaiseCompleted(); // первая реплика договорила, но отчёт ещё не озвучен
+        await Task.Delay(300);
+        Assert.Equal(VoiceInteractionState.Idle, service.State);
+        Assert.Equal(0, wake.PauseCount);
+
+        tts.RaiseReportQueued();
+        await Task.Delay(300);
+        Assert.Equal(VoiceInteractionState.Idle, service.State);
+
+        tts.RaiseCompleted();
+        Assert.True(await WaitUntilAsync(() => service.State == VoiceInteractionState.Listening, TimeSpan.FromSeconds(2)));
+    }
+
     private static VoiceInteractionService Create(
         FakeWakeWordListener? wake = null,
         FakeAudioCapture? audio = null,
@@ -181,9 +239,18 @@ public class VoiceInteractionServiceTests {
     }
 
     private sealed class FakeTts : ITextToSpeechPlayer {
+        public event Action? SpeechQueued;
+        public event Action? ReportQueued;
+        public event Action? SpeechCompleted;
+
         public bool IsSpeaking { get; set; }
 
+        public void RaiseQueued() => SpeechQueued?.Invoke();
+        public void RaiseReportQueued() => ReportQueued?.Invoke();
+        public void RaiseCompleted() => SpeechCompleted?.Invoke();
         public void EnqueueText(string text) { }
+        public void EnqueueReport(string text) { }
+        public void Stop() { }
         public void Dispose() { }
     }
 
